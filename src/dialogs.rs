@@ -198,8 +198,9 @@ fn angle_dial(ui: &mut Ui, deg: &mut f32) -> bool {
     p.circle(c, r, v.extreme_bg_color, v.widgets.inactive.bg_stroke);
     let a = deg.to_radians();
     let tip = c + vec2(a.cos(), -a.sin()) * (r - 2.0);
-    p.line_segment([c, tip], Stroke::new(2.0f32, v.selection.bg_fill));
-    p.circle_filled(tip, 3.0, v.selection.bg_fill);
+    let acc = crate::theme::pal(v.dark_mode).accent;
+    p.line_segment([c, tip], Stroke::new(2.0f32, acc));
+    p.circle_filled(tip, 3.0, acc);
     p.circle_filled(c, 2.0, v.text_color());
     if resp.dragged() || resp.clicked() {
         if let Some(pos) = resp.interact_pointer_pos() {

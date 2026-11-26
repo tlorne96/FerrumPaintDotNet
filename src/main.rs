@@ -12,6 +12,7 @@ mod icons;
 mod paint;
 mod raster;
 mod text;
+mod theme;
 mod tools;
 mod ui;
 #[cfg(test)]

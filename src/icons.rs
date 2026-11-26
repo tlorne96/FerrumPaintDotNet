@@ -42,9 +42,24 @@ const PAPER: Color32 = Color32::from_rgb(250, 250, 246);
 struct Pen<'a> {
     p: &'a Painter,
     r: Rect,
+    dark: bool,
 }
 
 impl Pen<'_> {
+    /// Theme adaptation: near-black neutral ink becomes light grey on dark backgrounds.
+    fn k(&self, c: Color32) -> Color32 {
+        if !self.dark || c.a() == 0 {
+            return c;
+        }
+        let (r, g, b) = (c.r() as i32, c.g() as i32, c.b() as i32);
+        let (mx, mn) = (r.max(g).max(b), r.min(g).min(b));
+        if mx < 90 && mx - mn < 30 {
+            let l = (228 - mx) as u8;
+            Color32::from_rgba_unmultiplied(l, l, l.saturating_add(6), c.a())
+        } else {
+            c
+        }
+    }
     fn at(&self, x: f32, y: f32) -> Pos2 {
         pos2(self.r.min.x + x * self.r.width(), self.r.min.y + y * self.r.height())
     }
@@ -52,19 +67,19 @@ impl Pen<'_> {
         w * self.r.width() / 24.0
     }
     fn line(&self, a: (f32, f32), b: (f32, f32), w: f32, c: Color32) {
-        self.p.line_segment([self.at(a.0, a.1), self.at(b.0, b.1)], Stroke::new(self.s(w), c));
+        self.p.line_segment([self.at(a.0, a.1), self.at(b.0, b.1)], Stroke::new(self.s(w), self.k(c)));
     }
     fn poly(&self, pts: &[(f32, f32)], fill: Color32, w: f32, c: Color32) {
         let v: Vec<Pos2> = pts.iter().map(|&(x, y)| self.at(x, y)).collect();
-        self.p.add(Shape::convex_polygon(v, fill, Stroke::new(self.s(w), c)));
+        self.p.add(Shape::convex_polygon(v, self.k(fill), Stroke::new(self.s(w), self.k(c))));
     }
     fn path(&self, pts: &[(f32, f32)], w: f32, c: Color32) {
         let v: Vec<Pos2> = pts.iter().map(|&(x, y)| self.at(x, y)).collect();
-        self.p.add(Shape::line(v, Stroke::new(self.s(w), c)));
+        self.p.add(Shape::line(v, Stroke::new(self.s(w), self.k(c))));
     }
     fn closed(&self, pts: &[(f32, f32)], w: f32, c: Color32) {
         let v: Vec<Pos2> = pts.iter().map(|&(x, y)| self.at(x, y)).collect();
-        self.p.add(Shape::closed_line(v, Stroke::new(self.s(w), c)));
+        self.p.add(Shape::closed_line(v, Stroke::new(self.s(w), self.k(c))));
     }
     fn rect(&self, x0: f32, y0: f32, x1: f32, y1: f32, fill: Color32, w: f32, c: Color32) {
         self.poly(&[(x0, y0), (x1, y0), (x1, y1), (x0, y1)], fill, w, c);
@@ -72,11 +87,11 @@ impl Pen<'_> {
     fn dashed_rect(&self, x0: f32, y0: f32, x1: f32, y1: f32, c: Color32) {
         let pts = [self.at(x0, y0), self.at(x1, y0), self.at(x1, y1), self.at(x0, y1), self.at(x0, y0)];
         let d = self.s(2.0);
-        self.p.extend(Shape::dashed_line(&pts, Stroke::new(self.s(1.3), c), d, d));
+        self.p.extend(Shape::dashed_line(&pts, Stroke::new(self.s(1.3), self.k(c)), d, d));
     }
     fn circle(&self, x: f32, y: f32, r: f32, fill: Color32, w: f32, c: Color32) {
         let rr = r * self.r.width();
-        self.p.circle(self.at(x, y), rr, fill, Stroke::new(self.s(w), c));
+        self.p.circle(self.at(x, y), rr, self.k(fill), Stroke::new(self.s(w), self.k(c)));
     }
     fn ellipse_pts(&self, cx: f32, cy: f32, rx: f32, ry: f32, n: usize) -> Vec<(f32, f32)> {
         (0..n)
@@ -175,7 +190,7 @@ pub fn shape_outline(kind: ShapeKind, x0: f32, y0: f32, x1: f32, y1: f32) -> Vec
 
 /// Draw an icon into `r` (designed on a 24x24 grid).
 pub fn paint_icon(p: &Painter, r: Rect, icon: Icon) {
-    let k = Pen { p, r };
+    let k = Pen { p, r, dark: p.ctx().style().visuals.dark_mode };
     match icon {
         Icon::Tool(t) => paint_tool(&k, t),
         Icon::Shape(s) => {
@@ -300,7 +315,7 @@ fn paint_tool(k: &Pen, t: Tool) {
             let mut pts: Vec<Pos2> = k.ellipse_pts(0.5, 0.5, 0.38, 0.3, 28).iter().map(|&(x, y)| k.at(x, y)).collect();
             pts.push(pts[0]);
             let d = k.s(2.0);
-            k.p.extend(Shape::dashed_line(&pts, Stroke::new(k.s(1.3), INK), d, d));
+            k.p.extend(Shape::dashed_line(&pts, Stroke::new(k.s(1.3), k.k(INK)), d, d));
         }
         Tool::LassoSelect => {
             let pts: Vec<Pos2> = [(0.2, 0.5), (0.3, 0.2), (0.65, 0.15), (0.85, 0.35), (0.7, 0.62), (0.4, 0.62), (0.3, 0.75), (0.38, 0.92)]
@@ -308,7 +323,7 @@ fn paint_tool(k: &Pen, t: Tool) {
                 .map(|&(x, y)| k.at(x, y))
                 .collect();
             let d = k.s(2.0);
-            k.p.extend(Shape::dashed_line(&pts, Stroke::new(k.s(1.3), INK), d, d));
+            k.p.extend(Shape::dashed_line(&pts, Stroke::new(k.s(1.3), k.k(INK)), d, d));
         }
         Tool::MagicWand => {
             k.line((0.15, 0.85), (0.62, 0.38), 2.6, INK);
@@ -478,14 +493,14 @@ pub fn app_icon_rgba(size: u32) -> Vec<u8> {
 pub fn icon_button(ui: &mut egui::Ui, icon: Icon, selected: bool, size: f32, tip: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(size, size), egui::Sense::click());
     if ui.is_rect_visible(rect) {
-        let vis = ui.style().interact_selectable(&resp, selected);
-        if selected || resp.hovered() {
-            ui.painter().rect_filled(rect, 3.0, vis.weak_bg_fill);
-            let s = vis.bg_stroke;
-            let pts = vec![rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()];
-            ui.painter().add(Shape::closed_line(pts, s));
-        }
-        paint_icon(ui.painter(), rect.shrink(size * 0.12), icon);
+        let p = crate::theme::ui_pal(ui);
+        if selected {
+            ui.painter().rect(rect, 5.0, p.accent_soft, egui::Stroke::new(1.0f32, p.accent), egui::StrokeKind::Inside);
+        } else if resp.is_pointer_button_down_on() {
+            ui.painter().rect_filled(rect, 5.0, p.accent_soft);
+        } else if resp.hovered() {
+            ui.painter().rect(rect, 5.0, p.hover, egui::Stroke::new(1.0f32, p.accent.gamma_multiply(0.45)), egui::StrokeKind::Inside);
+        }        paint_icon(ui.painter(), rect.shrink(size * 0.12), icon);
     }
     resp.on_hover_text(tip)
 }

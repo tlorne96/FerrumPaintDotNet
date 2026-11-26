@@ -9,7 +9,6 @@ use crate::tools::Tool;
 use egui::{pos2, vec2, Color32, CursorIcon, Modifiers, Painter, PointerButton, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use tiny_skia::{FillRule, FilterQuality, Mask, MaskType, Paint, PathBuilder, Pixmap, PixmapPaint, Transform};
 
-pub const CANVAS_BG: Color32 = Color32::from_rgb(178, 180, 186);
 
 pub const ZOOMS: [f32; 28] = [
     0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.16, 0.25, 0.33, 0.5, 0.66, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0, 12.0,
@@ -1279,14 +1278,15 @@ impl App {
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         self.canvas_rect = rect;
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, CANVAS_BG);
+        let pal = crate::theme::ui_pal(ui);
+        painter.rect_filled(rect, 0.0, pal.canvas);
         if self.docs.is_empty() {
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 "No image open. Use File → New (Ctrl+N) or File → Open (Ctrl+O),\nor drop an image file here.",
                 egui::FontId::proportional(16.0),
-                Color32::from_gray(60),
+                pal.weak,
             );
             return;
         }
@@ -1455,7 +1455,7 @@ impl App {
         let zoom = doc.view.zoom;
         let img_rect = Rect::from_min_max(self.to_screen(rect, Pos2::ZERO), self.to_screen(rect, pos2(doc.width as f32, doc.height as f32)));
         // drop shadow
-        painter.rect_filled(img_rect.translate(vec2(3.0, 3.0)), 0.0, Color32::from_black_alpha(60));
+        painter.add(egui::Shadow { offset: [0, 4], blur: 16, spread: 1, color: Color32::from_black_alpha(if ui.visuals().dark_mode { 150 } else { 70 }) }.as_shape(img_rect, 0.0));
         let uv = Rect::from_min_max(Pos2::ZERO, pos2(img_rect.width() / 16.0, img_rect.height() / 16.0));
         painter.image(checker, img_rect, uv, Color32::WHITE);
         if let Some(t) = &doc.texture {

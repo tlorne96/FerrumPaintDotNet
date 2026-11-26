@@ -25,18 +25,20 @@ fn item(ui: &mut Ui, label: &str, sc: &str, enabled: bool) -> bool {
 impl App {
     pub fn top_panels(&mut self, ctx: &egui::Context) {
         let mut cmds: Vec<Cmd> = vec![];
-        egui::TopBottomPanel::top("menubar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
+        let p = crate::theme::pal(self.dark);
+        let bar = |fill: Color32, m: (i8, i8)| egui::Frame::new().fill(fill).inner_margin(egui::Margin::symmetric(m.0, m.1));
+        egui::TopBottomPanel::top("menubar").frame(bar(p.bar, (6, 2))).show_separator_line(false).show(ctx, |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 egui::menu::bar(ui, |ui| self.menus(ui, &mut cmds));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     self.image_tabs(ui, &mut cmds);
                 });
             });
         });
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+        egui::TopBottomPanel::top("toolbar").frame(bar(p.bar, (8, 3))).show(ctx, |ui| {
             ui.horizontal(|ui| self.main_toolbar(ui, &mut cmds));
         });
-        egui::TopBottomPanel::top("tooloptions").show(ctx, |ui| {
+        egui::TopBottomPanel::top("tooloptions").frame(bar(p.panel, (8, 4))).show(ctx, |ui| {
             ui.horizontal(|ui| self.tool_options(ui, &mut cmds));
         });
         for c in cmds {
@@ -93,6 +95,9 @@ impl App {
             ui.separator();
             let g = if self.show_grid { "✔ Pixel Grid" } else { "Pixel Grid" };
             if item(ui, g, "Ctrl+'", has) { c(Cmd::ToggleGrid, true) }
+            ui.separator();
+            let d = if self.dark { "✔ Dark Theme" } else { "Dark Theme" };
+            if item(ui, d, "", true) { c(Cmd::ToggleTheme, true) }
         });
         ui.menu_button("Image", |ui| {
             ui.set_min_width(SC_MENU_W);
@@ -195,14 +200,16 @@ impl App {
         for i in (0..n).rev() {
             let doc = &self.docs[i];
             let selected = i == self.cur;
-            let size = vec2(52.0, 46.0);
+            let size = vec2(46.0, 38.0);
             let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
             let vis = ui.style().interact_selectable(&resp, selected);
             if selected || resp.hovered() {
                 ui.painter().rect_filled(rect, 3.0, vis.weak_bg_fill);
             }
             if let Some(t) = &doc.doc_thumb {
-                let ts = t.size_vec2();
+                let ts0 = t.size_vec2();
+                let k = (40.0 / ts0.x).min(32.0 / ts0.y).min(1.0);
+                let ts = ts0 * k;
                 let r = egui::Rect::from_center_size(rect.center(), ts);
                 if let Some(ck) = &self.checker {
                     ui.painter().image(ck.id(), r, egui::Rect::from_min_size(egui::Pos2::ZERO, ts / 8.0), Color32::WHITE);
@@ -210,7 +217,7 @@ impl App {
                 ui.painter().image(t.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
                 ui.painter().add(egui::Shape::closed_line(
                     vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()],
-                    egui::Stroke::new(1.0f32, Color32::from_gray(120)),
+                    egui::Stroke::new(1.0f32, if selected { crate::theme::ui_pal(ui).accent } else { Color32::from_gray(120) }),
                 ));
             }
             if doc.is_dirty() {
@@ -512,7 +519,10 @@ impl App {
     }
 
     pub fn status_bar(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+        let p = crate::theme::pal(self.dark);
+        let fr = egui::Frame::new().fill(p.bar).inner_margin(egui::Margin::symmetric(8, 3));
+        egui::TopBottomPanel::bottom("status").frame(fr).show(ctx, |ui| {
+            ui.visuals_mut().override_text_color = Some(p.weak);
             ui.horizontal(|ui| {
                 let hint = if self.status_msg.is_empty() { self.tool.hint().to_string() } else { self.status_msg.clone() };
                 ui.add(egui::Label::new(hint).truncate());
@@ -541,75 +551,51 @@ impl App {
     // Floating windows
 
     pub fn floating_windows(&mut self, ctx: &egui::Context) {
+        use crate::theme::tool_window;
         let area = ctx.available_rect();
         let mut cmds = vec![];
-        let frame = egui::Frame::window(&ctx.style()).inner_margin(6.0);
         if self.show[0] {
-            let mut open = true;
-            egui::Window::new("Tools")
-                .id(egui::Id::new(("win_tools", self.window_gen[0])))
-                .default_pos(area.left_top() + vec2(8.0, 8.0))
-                .resizable(false)
-                .collapsible(false)
-                .frame(frame)
-                .open(&mut open)
-                .show(ctx, |ui| {
-                    egui::Grid::new("toolgrid").spacing(vec2(2.0, 2.0)).show(ui, |ui| {
-                        for (i, t) in Tool::ALL.iter().enumerate() {
-                            let tip = format!("{} ({})", t.name(), t.key());
-                            if icon_button(ui, Icon::Tool(*t), self.tool == *t, 28.0, &tip).clicked() {
-                                self.set_tool(*t);
-                            }
-                            if i % 2 == 1 {
-                                ui.end_row();
-                            }
+            let id = egui::Id::new(("win_tools", self.window_gen[0]));
+            self.show[0] = tool_window(ctx, id, "Tools", |w| w.default_pos(area.left_top() + vec2(8.0, 8.0)).resizable(false), |ui| {
+                egui::Grid::new("toolgrid").spacing(vec2(2.0, 2.0)).show(ui, |ui| {
+                    for (i, t) in Tool::ALL.iter().enumerate() {
+                        let tip = format!("{} ({})", t.name(), t.key());
+                        if icon_button(ui, Icon::Tool(*t), self.tool == *t, 28.0, &tip).clicked() {
+                            self.set_tool(*t);
                         }
-                    });
+                        if i % 2 == 1 {
+                            ui.end_row();
+                        }
+                    }
                 });
-            self.show[0] = open;
+            });
         }
         if self.show[1] {
-            let mut open = true;
-            egui::Window::new("History")
-                .id(egui::Id::new(("win_history", self.window_gen[1])))
-                .default_pos(area.right_top() + vec2(-228.0, 8.0))
-                .default_size(vec2(210.0, 220.0))
-                .collapsible(false)
-                .frame(frame)
-                .open(&mut open)
-                .show(ctx, |ui| self.history_ui(ui, &mut cmds));
-            self.show[1] = open;
+            let id = egui::Id::new(("win_history", self.window_gen[1]));
+            self.show[1] = tool_window(ctx, id, "History", |w| w.default_pos(area.right_top() + vec2(-232.0, 8.0)).default_size(vec2(214.0, 220.0)), |ui| {
+                self.history_ui(ui, &mut cmds)
+            });
         }
         if self.show[2] {
-            let mut open = true;
-            egui::Window::new("Layers")
-                .id(egui::Id::new(("win_layers", self.window_gen[2])))
-                .default_pos(area.right_top() + vec2(-228.0, 262.0))
-                .default_size(vec2(210.0, 230.0))
-                .collapsible(false)
-                .frame(frame)
-                .open(&mut open)
-                .show(ctx, |ui| self.layers_ui(ui, &mut cmds));
-            self.show[2] = open;
+            let id = egui::Id::new(("win_layers", self.window_gen[2]));
+            self.show[2] = tool_window(ctx, id, "Layers", |w| w.default_pos(area.right_top() + vec2(-232.0, 272.0)).default_size(vec2(214.0, 230.0)), |ui| {
+                self.layers_ui(ui, &mut cmds)
+            });
         }
         if self.show[3] {
-            let mut open = true;
-            egui::Window::new("Colors")
-                .id(egui::Id::new(("win_colors", self.window_gen[3])))
-                .pivot(egui::Align2::LEFT_BOTTOM)
-                .default_pos(area.left_bottom() + vec2(8.0, -8.0))
-                .resizable(false)
-                .collapsible(false)
-                .frame(frame)
-                .open(&mut open)
-                .show(ctx, |ui| self.colors_ui(ui));
-            self.show[3] = open;
+            let id = egui::Id::new(("win_colors", self.window_gen[3]));
+            self.show[3] = tool_window(
+                ctx,
+                id,
+                "Colors",
+                |w| w.pivot(egui::Align2::LEFT_BOTTOM).default_pos(area.left_bottom() + vec2(8.0, -8.0)).resizable(false),
+                |ui| self.colors_ui(ui),
+            );
         }
         for c in cmds {
             self.run(ctx, c);
         }
     }
-
     fn history_ui(&mut self, ui: &mut Ui, cmds: &mut Vec<Cmd>) {
         let Some(doc) = self.docs.get(self.cur) else {
             ui.label("No image");
@@ -698,13 +684,15 @@ impl App {
                     );
                     // visibility checkbox
                     let cb = egui::Rect::from_center_size(rect.right_center() - vec2(14.0, 0.0), vec2(14.0, 14.0));
-                    ui.painter().rect_filled(cb, 2.0, Color32::WHITE);
+                    let pl = crate::theme::ui_pal(ui);
+                    ui.painter().rect_filled(cb, 3.0, if l.visible { pl.accent } else { pl.field });
                     ui.painter().add(egui::Shape::closed_line(
                         vec![cb.left_top(), cb.right_top(), cb.right_bottom(), cb.left_bottom()],
-                        egui::Stroke::new(1.0f32, Color32::from_gray(90)),
+                        egui::Stroke::new(1.0f32, if l.visible { pl.accent } else { pl.weak }),
                     ));
                     if l.visible {
-                        ui.painter().text(cb.center(), egui::Align2::CENTER_CENTER, "✔", egui::FontId::proportional(12.0), Color32::from_gray(30));
+                        let c = cb.center();
+                        ui.painter().add(egui::Shape::line(vec![c + vec2(-3.5, 0.0), c + vec2(-1.0, 2.8), c + vec2(3.8, -2.8)], egui::Stroke::new(1.8f32, Color32::WHITE)));
                     }
                     if resp.clicked() {
                         let on_cb = resp.interact_pointer_pos().map(|p| cb.expand(3.0).contains(p)).unwrap_or(false);

@@ -65,6 +65,7 @@ pub enum Cmd {
     SwitchImage(usize),
     Finish,
     SwapColors,
+    ToggleTheme,
 }
 
 pub struct App {
@@ -102,19 +103,27 @@ pub struct App {
     pub last_title: String,
     pub untitled_counter: u32,
     pub last_new_size: (u32, u32),
+    pub dark: bool,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, files: Vec<PathBuf>) -> Self {
         let ctx = &cc.egui_ctx;
-        ctx.set_visuals(egui::Visuals::light());
+        let dark = crate::theme::load_dark_pref().unwrap_or_else(|| ctx.system_theme() == Some(egui::Theme::Dark));
         ctx.set_fonts(ui_fonts());
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
-        ctx.style_mut(|s| {
-            s.spacing.item_spacing = egui::vec2(6.0, 4.0);
-            s.spacing.button_padding = egui::vec2(6.0, 2.0);
-        });
-        Self::with_files(files)
+        crate::theme::apply(ctx, dark);
+        let mut app = Self::with_files(files);
+        app.dark = dark;
+        // Developer aid for UI screenshots: FERRUM_OPEN_EFFECT="Bulge" opens that effect's dialog.
+        if let Ok(name) = std::env::var("FERRUM_OPEN_EFFECT") {
+            if let Some(&k) = crate::fx::Fx::ALL.iter().find(|k| k.name().eq_ignore_ascii_case(&name)) {
+                if !app.docs.is_empty() {
+                    app.start_filter(Filter::Fx(crate::fx::FxState::new(k, app.primary, app.secondary)));
+                }
+            }
+        }
+        app
     }
 
     /// Construct the application state without a UI context (also used by tests).
@@ -154,6 +163,7 @@ impl App {
             last_title: String::new(),
             untitled_counter: 1,
             last_new_size: (800, 600),
+            dark: false,
         };
         for f in files {
             app.open_path(&f);
@@ -463,6 +473,11 @@ impl App {
                 self.dialog = Some(Dialog::layer_props(doc, doc.active));
             }
             Cmd::Filter(f) => self.start_filter(f),
+            Cmd::ToggleTheme => {
+                self.dark = !self.dark;
+                crate::theme::apply(ctx, self.dark);
+                crate::theme::save_dark_pref(self.dark);
+            }
             Cmd::RepeatEffect => {
                 if let Some(f) = self.last_effect.clone() {
                     self.apply_filter_now(&f);
@@ -1027,19 +1042,9 @@ pub fn brush_presets() -> &'static [f32] {
     &BRUSH_PRESETS
 }
 
-/// egui's default UI font lacks several arrows and symbols used in labels
-/// (→ ← ↑ ↓ ⇄ ● ▸ …). Add the bundled monospace font as a final fallback for
-/// proportional text so they never render as boxes.
+/// UI fonts: native regular-weight font plus the bundled fallbacks (see theme.rs).
 pub fn ui_fonts() -> egui::FontDefinitions {
-    let mut defs = egui::FontDefinitions::default();
-    let mono = defs.families.get(&egui::FontFamily::Monospace).cloned().unwrap_or_default();
-    let prop = defs.families.entry(egui::FontFamily::Proportional).or_default();
-    for name in mono {
-        if !prop.contains(&name) {
-            prop.push(name);
-        }
-    }
-    defs
+    crate::theme::ui_fonts()
 }
 
 /// Lower-case file extension without the dot.
