@@ -44,3 +44,23 @@ Colors window: X swap, C switch active colour; wheel left = active slot, right =
 Bucket: Shift global, Ctrl sample image. Picker: Ctrl samples image. Gradient: right-drag reverses; right-click nub swaps; Shift 15 deg.
 Clone: Ctrl+click source. Recolor: left replaces secondary with primary; right reverse.
 Text: Esc commits. Shapes: A / Shift+A cycle shape type.
+
+## Adjustments and Effects menus (public documentation, read 2026-11-27)
+
+Sources: https://www.getpaint.net/doc/latest/AdjustmentsMenu.html and https://www.getpaint.net/doc/latest/EffectsMenu.html
+(sub-pages EffectsArtisticMenu, EffectsBlursMenu, EffectsColorMenu, EffectsDistortMenu, EffectsNoiseMenu,
+EffectsObjectMenu, EffectsPhotoMenu, EffectsRenderMenu, EffectsStylizeMenu .html). Only menu names, effect names
+and the user-visible descriptions of each control were used; all algorithms are original.
+
+- Adjustments: Auto-Level, Black and White, Brightness / Contrast, Curves, Exposure, Highlights / Shadows,
+  Hue / Saturation, Invert Alpha, Invert Colors, Levels, Posterize, Sepia (intensity), Temperature and Tint.
+- Artistic: Ink Sketch, Linocut, Mosaic, Oil Painting, Pencil Sketch, Pointillism, Stained Glass.
+- Blurs: Bokeh, Fragment, Gaussian, Median, Motion, Radial, Sketch, Square, Surface, Zoom.
+- Color: Quantize (Median Cut / Octree, dithering 0-8).
+- Distort: Bulge, Crystalize, Dents, Frosted Glass, Morphology, Pixelate, Polar Inversion, Spherize,
+  Tile Reflection, Twist, Waves.
+- Noise: Add Noise, Reduce Noise. Object: Drop Shadow.
+- Photo: Glow, Red Eye Removal, Sharpen, Soften Portrait, Straighten, Vignette.
+- Render: Clouds, Julia Fractal, Mandelbrot Fractal, Turbulence.
+- Stylize: Edge Detect, Emboss, Halftone, Outline, Relief.
+- Ctrl+F repeats the last effect with the same parameters without showing a dialog.

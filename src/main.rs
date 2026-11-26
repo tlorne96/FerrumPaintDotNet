@@ -7,6 +7,7 @@ mod colors;
 mod dialogs;
 mod document;
 mod fileio;
+mod fx;
 mod icons;
 mod paint;
 mod raster;
@@ -29,6 +30,14 @@ fn main() -> eframe::Result<()> {
         println!("wrote {path}");
         return Ok(());
     }
+// `--register-file-type` (Windows): associate .ferrum files with this executable for the current user.
+    if args.first().map(|s| s == "--register-file-type").unwrap_or(false) {
+        match register_file_type() {
+            Ok(()) => println!(".ferrum files now open with Ferrum Paint"),
+            Err(e) => eprintln!("could not register .ferrum: {e}"),
+        }
+        return Ok(());
+    }
     let files: Vec<PathBuf> = args.drain(..).filter(|a| !a.starts_with("--")).map(PathBuf::from).collect();
 
     let icon = egui::IconData { rgba: icons::app_icon_rgba(64), width: 64, height: 64 };
@@ -43,4 +52,28 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     eframe::run_native(app::APP_NAME, options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, files)))))
+}
+
+#[cfg(windows)]
+fn register_file_type() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = exe.to_string_lossy();
+    let keys = [
+        (r"HKCU\Software\Classes\.ferrum", String::from("FerrumPaint.Image")),
+        (r"HKCU\Software\Classes\FerrumPaint.Image", String::from("Ferrum Paint image")),
+        (r"HKCU\Software\Classes\FerrumPaint.Image\DefaultIcon", format!("\"{exe}\",0")),
+        (r"HKCU\Software\Classes\FerrumPaint.Image\shell\open\command", format!("\"{exe}\" \"%1\"")),
+    ];
+    for (k, v) in keys {
+        let st = std::process::Command::new("reg").args(["add", k, "/ve", "/d", &v, "/f"]).output().map_err(|e| e.to_string())?;
+        if !st.status.success() {
+            return Err(String::from_utf8_lossy(&st.stderr).into_owned());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn register_file_type() -> Result<(), String> {
+    Err("on Linux run packaging/install-linux.sh, which installs the application/x-ferrum-paint MIME type".into())
 }

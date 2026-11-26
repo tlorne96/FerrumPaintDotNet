@@ -4,6 +4,7 @@
 use crate::app::{App, Cmd};
 use crate::canvas::Pending;
 use crate::icons::{icon_button, paint_icon, Icon};
+use crate::fx::{Fx, FxState, Menu};
 use crate::raster::{Filter, Orient, SelMode};
 use crate::tools::*;
 use egui::{vec2, Color32, RichText, Sense, Ui};
@@ -125,19 +126,24 @@ impl App {
             ui.separator();
             if item(ui, "Layer Properties...", "F4", has) { c(Cmd::LayerProperties, true) }
         });
+        let (pc, sc2) = (self.primary, self.secondary);
+        let fx = |k: Fx| Filter::Fx(FxState::new(k, pc, sc2));
         ui.menu_button("Adjustments", |ui| {
             ui.set_min_width(SC_MENU_W);
-            let adj: [(Filter, &str); 10] = [
+            let adj: [(Filter, &str); 13] = [
                 (Filter::AutoLevel, "Ctrl+Shift+L"),
                 (Filter::BlackAndWhite, "Ctrl+Shift+G"),
                 (Filter::BrightnessContrast { brightness: 0, contrast: 0 }, "Ctrl+Shift+T"),
                 (Filter::Curves { points: vec![(0, 0), (255, 255)], luminosity: true }, "Ctrl+Shift+M"),
+                (fx(Fx::Exposure), ""),
+                (fx(Fx::HighlightsShadows), ""),
                 (Filter::HueSaturation { hue: 0, saturation: 100, lightness: 0 }, "Ctrl+Shift+U"),
                 (Filter::InvertAlpha, "Ctrl+Alt+I"),
                 (Filter::InvertColors, "Ctrl+Shift+I"),
                 (Filter::Levels { in_lo: 0, in_hi: 255, gamma: 1.0, out_lo: 0, out_hi: 255 }, "Ctrl+L"),
                 (Filter::Posterize { levels: 16 }, "Ctrl+Shift+P"),
-                (Filter::Sepia, "Ctrl+Shift+E"),
+                (fx(Fx::Sepia), "Ctrl+Shift+E"),
+                (fx(Fx::TemperatureTint), ""),
             ];
             for (f, sc) in adj {
                 let label = if f.has_dialog() { format!("{}...", f.name()) } else { f.name().to_string() };
@@ -149,28 +155,15 @@ impl App {
             let last = self.last_effect.as_ref().map(|f| format!("Repeat {}", f.name())).unwrap_or("Repeat Effect".into());
             if item(ui, &last, "Ctrl+F", has && self.last_effect.is_some()) { c(Cmd::RepeatEffect, true) }
             ui.separator();
-            ui.menu_button("Blurs", |ui| {
-                if item(ui, "Gaussian Blur...", "", has) { c(Cmd::Filter(Filter::GaussianBlur { radius: 2 }), true) }
-            });
-            ui.menu_button("Artistic", |ui| {
-                if item(ui, "Oil Painting...", "", has) { c(Cmd::Filter(Filter::OilPaint { radius: 3 }), true) }
-            });
-            ui.menu_button("Distort", |ui| {
-                if item(ui, "Pixelate...", "", has) { c(Cmd::Filter(Filter::Pixelate { cell: 8 }), true) }
-            });
-            ui.menu_button("Noise", |ui| {
-                if item(ui, "Add Noise...", "", has) { c(Cmd::Filter(Filter::AddNoise { intensity: 64, saturation: 100, coverage: 100 }), true) }
-            });
-            ui.menu_button("Photo", |ui| {
-                if item(ui, "Sharpen...", "", has) { c(Cmd::Filter(Filter::Sharpen { amount: 10 }), true) }
-                if item(ui, "Vignette...", "", has) { c(Cmd::Filter(Filter::Vignette { radius: 0.5, strength: 1.0 }), true) }
-            });
-            ui.menu_button("Stylize", |ui| {
-                if item(ui, "Edge Detect...", "", has) { c(Cmd::Filter(Filter::EdgeDetect { angle: 45.0 }), true) }
-                if item(ui, "Emboss...", "", has) { c(Cmd::Filter(Filter::Emboss { angle: 0.0 }), true) }
-            });
-        });
-        ui.menu_button("Window", |ui| {
+            for m in Menu::EFFECT_MENUS {
+                ui.menu_button(m.name(), |ui| {
+                    ui.set_min_width(180.0);
+                    for &k in Fx::ALL.iter().filter(|k| k.menu() == m) {
+                        if item(ui, &format!("{}...", k.name()), "", has) { c(Cmd::Filter(fx(k)), true) }
+                    }
+                });
+            }
+        });        ui.menu_button("Window", |ui| {
             ui.set_min_width(SC_MENU_W);
             let names = ["Tools", "History", "Layers", "Colors"];
             let keys = ["F5", "F6", "F7", "F8"];

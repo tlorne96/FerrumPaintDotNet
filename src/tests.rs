@@ -333,3 +333,87 @@ fn all_ui_glyphs_render() {
     }
     assert!(missing.is_empty(), "glyphs missing from UI fonts: {missing:?}");
 }
+/// Every adjustment and effect runs with its defaults, keeps the image size, honours the
+/// selection, and (except for the documented no-op defaults) changes the image.
+#[test]
+fn all_effects_run() {
+    use crate::fx::{Fx, FxState};
+    let (w, h) = (64u32, 48u32);
+    let mut src = tiny_skia::Pixmap::new(w, h).unwrap();
+    for y in 0..h {
+        for x in 0..w {
+            let a = if x < 6 { 0 } else { 255 };
+            let r = (x * 4) as u8;
+            let g = (y * 5) as u8;
+            let b = ((x * y) % 256) as u8;
+            let c = tiny_skia::ColorU8::from_rgba(r, g, if (x / 8 + y / 8) % 2 == 0 { b } else { 255 - b }, a).premultiply();
+            src.pixels_mut()[(y * w + x) as usize] = c;
+        }
+    }
+    let mut sel = tiny_skia::Mask::new(w, h).unwrap();
+    for y in 10..30 {
+        for x in 20..50 {
+            sel.data_mut()[(y * w + x) as usize] = 255;
+        }
+    }
+    // effects whose default settings are intentionally neutral on this test image
+    let neutral = [Fx::Exposure, Fx::TemperatureTint, Fx::Straighten, Fx::RedEyeRemoval];
+    let mut unchanged = vec![];
+    for &k in Fx::ALL {
+        let st = FxState::new(k, Col::BLACK, Col::WHITE);
+        assert_eq!(st.vals.len(), k.params().len());
+        let f = Filter::Fx(st);
+        let out = raster::apply_filter(&f, &src, None);
+        assert_eq!((out.width(), out.height()), (w, h), "{}", k.name());
+        if out.data() == src.data() && !neutral.contains(&k) {
+            unchanged.push(k.name());
+        }
+        // with a selection, pixels outside it are untouched
+        let adj = raster::apply_filter(&f, &src, Some(&sel));
+        let mut mixed = src.clone();
+        raster::masked_mix(&src, &adj, Some(&sel), &mut mixed);
+        assert_eq!(mixed.pixel(2, 2), src.pixel(2, 2), "{}", k.name());
+        assert_eq!(mixed.pixel(60, 40), src.pixel(60, 40), "{}", k.name());
+    }
+    assert!(unchanged.is_empty(), "effects with no visible result: {unchanged:?}");
+    assert_eq!(Fx::ALL.iter().filter(|k| k.is_effect()).count(), 47);
+}
+/// Manual benchmark: `cargo test --release -- --ignored effect_timing --nocapture`.
+#[test]
+#[ignore]
+fn effect_timing() {
+    use crate::fx::{Fx, FxState};
+    let (w, h) = (2000u32, 1500u32);
+    let mut src = tiny_skia::Pixmap::new(w, h).unwrap();
+    for (i, p) in src.pixels_mut().iter_mut().enumerate() {
+        let (x, y) = (i as u32 % w, i as u32 / w);
+        *p = tiny_skia::ColorU8::from_rgba((x % 256) as u8, (y % 256) as u8, ((x ^ y) % 256) as u8, 255).premultiply();
+    }
+    for &k in Fx::ALL {
+        let t = std::time::Instant::now();
+        let _ = raster::apply_filter(&Filter::Fx(FxState::new(k, Col::BLACK, Col::WHITE)), &src, None);
+        println!("{:>22}: {:>7.0} ms", k.name(), t.elapsed().as_secs_f64() * 1000.0);
+    }
+}
+/// Saving a layered image to a flat format asks first and never flattens the open document;
+/// saving to .ferrum writes directly.
+#[test]
+fn flat_save_of_layered_image_warns_and_keeps_layers() {
+    let dir = std::env::temp_dir().join(format!("ferrum-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut a = app(40, 30);
+    a.docs[0].add_layer();
+    a.docs[0].path = Some(dir.join("pic.png"));
+    assert!(!a.save(0, false));
+    assert!(matches!(a.dialog, Some(crate::dialogs::Dialog::FlattenSave { .. })));
+    assert_eq!(a.docs[0].layers.len(), 2);
+    a.dialog = None;
+    assert!(a.write_file(0, dir.join("pic.png")));
+    assert_eq!(a.docs[0].layers.len(), 2, "exporting flat must not merge the open document's layers");
+    a.docs[0].path = Some(dir.join("pic.ferrum"));
+    assert!(a.save(0, false));
+    assert!(a.dialog.is_none());
+    let back = crate::fileio::load(&dir.join("pic.ferrum")).unwrap();
+    assert_eq!(back.layers.len(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}

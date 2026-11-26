@@ -502,16 +502,8 @@ pub enum Filter {
     InvertColors,
     Levels { in_lo: u8, in_hi: u8, gamma: f32, out_lo: u8, out_hi: u8 },
     Posterize { levels: u8 },
-    Sepia,
-    // Effects
-    GaussianBlur { radius: u32 },
-    Sharpen { amount: u32 },
-    AddNoise { intensity: u32, saturation: u32, coverage: u32 },
-    Pixelate { cell: u32 },
-    Emboss { angle: f32 },
-    EdgeDetect { angle: f32 },
-    Vignette { radius: f32, strength: f32 },
-    OilPaint { radius: u32 },
+    /// Parametric adjustments and all effects.
+    Fx(crate::fx::FxState),
 }
 
 impl Filter {
@@ -526,35 +518,17 @@ impl Filter {
             Filter::InvertColors => "Invert Colors",
             Filter::Levels { .. } => "Levels",
             Filter::Posterize { .. } => "Posterize",
-            Filter::Sepia => "Sepia",
-            Filter::GaussianBlur { .. } => "Gaussian Blur",
-            Filter::Sharpen { .. } => "Sharpen",
-            Filter::AddNoise { .. } => "Add Noise",
-            Filter::Pixelate { .. } => "Pixelate",
-            Filter::Emboss { .. } => "Emboss",
-            Filter::EdgeDetect { .. } => "Edge Detect",
-            Filter::Vignette { .. } => "Vignette",
-            Filter::OilPaint { .. } => "Oil Painting",
+            Filter::Fx(s) => s.kind.name(),
         }
     }
     pub fn has_dialog(&self) -> bool {
         !matches!(
             self,
-            Filter::AutoLevel | Filter::BlackAndWhite | Filter::InvertAlpha | Filter::InvertColors | Filter::Sepia
+            Filter::AutoLevel | Filter::BlackAndWhite | Filter::InvertAlpha | Filter::InvertColors
         )
     }
     pub fn is_effect(&self) -> bool {
-        matches!(
-            self,
-            Filter::GaussianBlur { .. }
-                | Filter::Sharpen { .. }
-                | Filter::AddNoise { .. }
-                | Filter::Pixelate { .. }
-                | Filter::Emboss { .. }
-                | Filter::EdgeDetect { .. }
-                | Filter::Vignette { .. }
-                | Filter::OilPaint { .. }
-        )
+        matches!(self, Filter::Fx(s) if s.kind.is_effect())
     }
 }
 
@@ -618,12 +592,6 @@ pub fn apply_filter(f: &Filter, src: &Pixmap, mask: Option<&Mask>) -> Pixmap {
         Filter::BlackAndWhite => map_straight(src, |p| {
             let l = luma(p[0] as f32, p[1] as f32, p[2] as f32).round().clamp(0.0, 255.0) as u8;
             [l, l, l, p[3]]
-        }),
-        Filter::Sepia => map_straight(src, |p| {
-            let l = luma(p[0] as f32, p[1] as f32, p[2] as f32) / 255.0;
-            let (r, g, b) = (l * 1.07 + 0.03, l * 0.92 + 0.01, l * 0.70);
-            let c = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
-            [c(r), c(g), c(b), p[3]]
         }),
         Filter::AutoLevel => {
             let mut lo = [255u8; 3];
@@ -708,120 +676,7 @@ pub fn apply_filter(f: &Filter, src: &Pixmap, mask: Option<&Mask>) -> Pixmap {
             }
             lut_map(src, &lut)
         }
-        Filter::GaussianBlur { radius } => gaussian_blur(src, *radius),
-        Filter::Sharpen { amount } => {
-            let blurred = gaussian_blur(src, (*amount / 10).clamp(1, 20));
-            let k = (*amount as f32 / 20.0).clamp(0.05, 5.0);
-            let mut out = src.clone();
-            let (s, b) = (src.data(), blurred.data());
-            let o = out.data_mut();
-            for i in (0..o.len()).step_by(4) {
-                let a = s[i + 3];
-                for c in 0..3 {
-                    let v = s[i + c] as f32 + (s[i + c] as f32 - b[i + c] as f32) * k;
-                    o[i + c] = v.round().clamp(0.0, a as f32) as u8;
-                }
-            }
-            out
-        }
-        Filter::AddNoise { intensity, saturation, coverage } => {
-            let mut seed: u32 = 0x9E3779B9;
-            let mut rnd = move || {
-                seed ^= seed << 13;
-                seed ^= seed >> 17;
-                seed ^= seed << 5;
-                seed
-            };
-            let amp = *intensity as f32 / 100.0 * 128.0;
-            let sat = *saturation as f32 / 100.0;
-            let cov = *coverage as f32 / 100.0;
-            let mut out = src.clone();
-            for px in out.data_mut().chunks_exact_mut(4) {
-                let r0 = rnd();
-                if (r0 % 10000) as f32 / 10000.0 >= cov {
-                    continue;
-                }
-                let p = unpremul([px[0], px[1], px[2], px[3]]);
-                let n = |r: &mut dyn FnMut() -> u32| ((r() % 2001) as f32 / 1000.0 - 1.0) * amp;
-                let base = n(&mut rnd);
-                let mut q = [0u8; 4];
-                for k in 0..3 {
-                    let cn = n(&mut rnd) * sat + base * (1.0 - sat);
-                    q[k] = (p[k] as f32 + cn).round().clamp(0.0, 255.0) as u8;
-                }
-                q[3] = p[3];
-                px.copy_from_slice(&premul(q));
-            }
-            out
-        }
-        Filter::Pixelate { cell } => {
-            let c = (*cell).max(1);
-            let (w, h) = (src.width(), src.height());
-            let mut out = src.clone();
-            let s = src.data();
-            let o = out.data_mut();
-            let mut by = 0;
-            while by < h {
-                let mut bx = 0;
-                while bx < w {
-                    let (ex, ey) = ((bx + c).min(w), (by + c).min(h));
-                    let mut acc = [0u64; 4];
-                    let n = ((ex - bx) * (ey - by)) as u64;
-                    for y in by..ey {
-                        for x in bx..ex {
-                            let i = ((y * w + x) * 4) as usize;
-                            for k in 0..4 {
-                                acc[k] += s[i + k] as u64;
-                            }
-                        }
-                    }
-                    let avg = [(acc[0] / n) as u8, (acc[1] / n) as u8, (acc[2] / n) as u8, (acc[3] / n) as u8];
-                    for y in by..ey {
-                        for x in bx..ex {
-                            let i = ((y * w + x) * 4) as usize;
-                            o[i..i + 4].copy_from_slice(&avg);
-                        }
-                    }
-                    bx += c;
-                }
-                by += c;
-            }
-            out
-        }
-        Filter::Emboss { angle } => {
-            let (dx, dy) = (angle.to_radians().cos(), angle.to_radians().sin());
-            convolve_gray(src, |get| {
-                let a = get(-dx, -dy);
-                let b = get(dx, dy);
-                (b - a) * 2.0 + 128.0
-            }, true)
-        }
-        Filter::EdgeDetect { angle } => {
-            let (dx, dy) = (angle.to_radians().cos(), angle.to_radians().sin());
-            convolve_gray(src, |get| {
-                let a = get(-dx, -dy);
-                let b = get(dx, dy);
-                (b - a) + 128.0
-            }, false)
-        }
-        Filter::Vignette { radius, strength } => {
-            let (w, h) = (src.width() as f32, src.height() as f32);
-            let (cx, cy) = (w / 2.0, h / 2.0);
-            let maxd = (cx * cx + cy * cy).sqrt() * radius.max(0.05);
-            let mut out = src.clone();
-            let ww = src.width();
-            for (i, px) in out.data_mut().chunks_exact_mut(4).enumerate() {
-                let x = (i as u32 % ww) as f32 + 0.5;
-                let y = (i as u32 / ww) as f32 + 0.5;
-                let d = (((x - cx).powi(2) + (y - cy).powi(2)).sqrt() / maxd).min(1.5);
-                let f = 1.0 - (d * d).min(1.0) * strength;
-                for k in 0..3 {
-                    px[k] = (px[k] as f32 * f).round().clamp(0.0, 255.0) as u8;
-                }
-            }
-            out
-        }
-        Filter::OilPaint { radius } => oil_paint(src, (*radius).clamp(1, 10)),
+        Filter::Fx(s) => crate::fx::apply(s, src, mask),
     }
 }
 
@@ -896,79 +751,6 @@ fn box_v(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: usize) {
             }
         }
     }
-}
-
-/// Directional gray-level kernel helper. `f` receives a sampler of luma at a sub-pixel offset.
-fn convolve_gray(src: &Pixmap, f: impl Fn(&dyn Fn(f32, f32) -> f32) -> f32, gray_out: bool) -> Pixmap {
-    let (w, h) = (src.width() as i32, src.height() as i32);
-    let s = src.data();
-    let lum: Vec<f32> = s
-        .chunks_exact(4)
-        .map(|p| {
-            let u = unpremul([p[0], p[1], p[2], p[3]]);
-            luma(u[0] as f32, u[1] as f32, u[2] as f32)
-        })
-        .collect();
-    let mut out = src.clone();
-    let o = out.data_mut();
-    for y in 0..h {
-        for x in 0..w {
-            let get = |dx: f32, dy: f32| {
-                let sx = (x as f32 + dx).round().clamp(0.0, (w - 1) as f32) as i32;
-                let sy = (y as f32 + dy).round().clamp(0.0, (h - 1) as f32) as i32;
-                lum[(sy * w + sx) as usize]
-            };
-            let v = f(&get).clamp(0.0, 255.0);
-            let i = ((y * w + x) * 4) as usize;
-            let a = s[i + 3];
-            let p = if gray_out {
-                let g = v.round() as u8;
-                [g, g, g, a]
-            } else {
-                let u = unpremul([s[i], s[i + 1], s[i + 2], a]);
-                let d = v - 128.0;
-                let c = |c: u8| (c as f32 + d).round().clamp(0.0, 255.0) as u8;
-                [c(u[0]), c(u[1]), c(u[2]), a]
-            };
-            o[i..i + 4].copy_from_slice(&premul(p));
-        }
-    }
-    out
-}
-
-fn oil_paint(src: &Pixmap, r: u32) -> Pixmap {
-    let (w, h) = (src.width() as i32, src.height() as i32);
-    let s = src.data();
-    let mut out = src.clone();
-    let o = out.data_mut();
-    let levels = 20usize;
-    let r = r as i32;
-    for y in 0..h {
-        for x in 0..w {
-            let mut count = [0u32; 20];
-            let mut sum = [[0u32; 4]; 20];
-            for yy in (y - r).max(0)..=(y + r).min(h - 1) {
-                for xx in (x - r).max(0)..=(x + r).min(w - 1) {
-                    let i = ((yy * w + xx) * 4) as usize;
-                    let l = luma(s[i] as f32, s[i + 1] as f32, s[i + 2] as f32);
-                    let bin = ((l / 256.0) * levels as f32) as usize;
-                    let bin = bin.min(levels - 1);
-                    count[bin] += 1;
-                    for k in 0..4 {
-                        sum[bin][k] += s[i + k] as u32;
-                    }
-                }
-            }
-            let (best, &n) = count.iter().enumerate().max_by_key(|(_, &c)| c).unwrap();
-            let i = ((y * w + x) * 4) as usize;
-            if n > 0 {
-                for k in 0..4 {
-                    o[i + k] = (sum[best][k] / n) as u8;
-                }
-            }
-        }
-    }
-    out
 }
 
 /// Combine masks for selection modes.

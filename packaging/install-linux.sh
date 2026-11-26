@@ -14,6 +14,10 @@ for s in 48 128 256; do
   "$BIN" --write-icon "$d/ferrum-paint.png" "$s" >/dev/null
 done
 install -m 644 packaging/ferrum-paint.desktop ~/.local/share/applications/ferrum-paint.desktop
+mkdir -p ~/.local/share/mime/packages
+install -m 644 packaging/ferrum-paint-mime.xml ~/.local/share/mime/packages/ferrum-paint.xml
+update-mime-database ~/.local/share/mime >/dev/null 2>&1 || true
+xdg-mime default ferrum-paint.desktop application/x-ferrum-paint >/dev/null 2>&1 || true
 update-desktop-database ~/.local/share/applications >/dev/null 2>&1 || true
 gtk-update-icon-cache ~/.local/share/icons/hicolor >/dev/null 2>&1 || true
 echo "Installed. Make sure ~/.local/bin is on your PATH, then run: ferrum-paint"

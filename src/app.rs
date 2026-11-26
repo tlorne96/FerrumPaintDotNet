@@ -521,16 +521,26 @@ impl App {
     }
 
     pub fn save(&mut self, idx: usize, save_as: bool) -> bool {
+        self.save_ext(idx, save_as, false)
+    }
+
+    /// Save, asking for a path when needed. Saving a layered image to a flat format asks first
+    /// (the open document always keeps its layers). Returns true once the file is written.
+    pub fn save_ext(&mut self, idx: usize, save_as: bool, close_after: bool) -> bool {
         let path = match (&self.docs[idx].path, save_as) {
             (Some(p), false) => Some(p.clone()),
             _ => {
                 let doc = &self.docs[idx];
                 let stem = doc.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or(doc.name.clone());
-                let default = if doc.layers.len() > 1 { format!("{stem}.ferrum") } else { format!("{stem}.png") };
-                rfd::FileDialog::new()
-                    .set_file_name(default)
+                let stem = stem.strip_suffix(".ferrum").map(str::to_string).unwrap_or(stem);
+                // like .pdn: new images default to the layered native format; opened files keep their type
+                let ext = doc.path.as_ref().map(|p| file_ext(p)).filter(|e| !e.is_empty()).unwrap_or_else(|| "ferrum".into());
+                let mut fd = rfd::FileDialog::new().set_file_name(format!("{stem}.{ext}"));
+                if let Some(dir) = doc.path.as_ref().and_then(|p| p.parent()) {
+                    fd = fd.set_directory(dir);
+                }
+                fd.add_filter("Ferrum Paint image, keeps layers (*.ferrum)", &["ferrum"])
                     .add_filter("PNG", &["png"])
-                    .add_filter("Ferrum Paint image (layers)", &["ferrum"])
                     .add_filter("JPEG", &["jpg", "jpeg"])
                     .add_filter("BMP", &["bmp"])
                     .add_filter("TGA", &["tga"])
@@ -540,6 +550,15 @@ impl App {
             }
         };
         let Some(path) = path else { return false };
+        if file_ext(&path) != "ferrum" && self.docs[idx].layers.len() > 1 {
+            self.dialog = Some(Dialog::FlattenSave { uid: self.docs[idx].uid, path, close_after });
+            return false;
+        }
+        self.write_file(idx, path)
+    }
+
+    /// Write the document to `path` (format from the extension) and mark it saved.
+    pub fn write_file(&mut self, idx: usize, path: std::path::PathBuf) -> bool {
         match fileio::save(&self.docs[idx], &path) {
             Ok(()) => {
                 let doc = &mut self.docs[idx];
@@ -554,7 +573,6 @@ impl App {
             }
         }
     }
-
     pub fn request_close(&mut self, idx: usize) {
         if idx >= self.docs.len() {
             return;
@@ -691,7 +709,7 @@ impl App {
             (true, true, false, Key::I) => Filter(raster::Filter::InvertColors),
             (true, false, false, Key::L) => Filter(raster::Filter::Levels { in_lo: 0, in_hi: 255, gamma: 1.0, out_lo: 0, out_hi: 255 }),
             (true, true, false, Key::P) => Filter(raster::Filter::Posterize { levels: 16 }),
-            (true, true, false, Key::E) => Filter(raster::Filter::Sepia),
+            (true, true, false, Key::E) => Filter(raster::Filter::Fx(crate::fx::FxState::new(crate::fx::Fx::Sepia, self.primary, self.secondary))),
             (true, false, false, Key::F) => RepeatEffect,
             (false, false, false, Key::F1) => Shortcuts,
             (false, false, false, Key::F5) => ToggleWindow(0),
@@ -1022,4 +1040,9 @@ pub fn ui_fonts() -> egui::FontDefinitions {
         }
     }
     defs
+}
+
+/// Lower-case file extension without the dot.
+pub fn file_ext(p: &std::path::Path) -> String {
+    p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default()
 }

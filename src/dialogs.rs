@@ -11,10 +11,11 @@ pub enum Dialog {
     Resize { pct: f32, by_pct: bool, w: u32, h: u32, ow: u32, oh: u32, keep: bool, res: Resampling },
     Canvas { w: u32, h: u32, ow: u32, oh: u32, keep: bool, anchor: (u8, u8) },
     LayerProps { uid: u64, idx: usize, before: Layer, name: String, visible: bool, opacity: u8, blend: LayerBlend },
-    Filter { uid: u64, idx: usize, before: Layer, filter: Filter, applied: Option<Filter>, sel_curve: Option<usize> },
+    Filter { uid: u64, idx: usize, before: Layer, filter: Filter, initial: Filter, applied: Option<Filter>, sel_curve: Option<usize>, job: Option<FilterJob>, pad: Option<egui::TextureHandle> },
     RotateZoom { uid: u64, idx: usize, before: Layer, angle: f32, pan: (f32, f32), zoom: f32, applied: Option<(f32, (f32, f32), f32)> },
     PasteExpand { img: tiny_skia::Pixmap, new_layer: bool },
     ConfirmClose { uid: u64 },
+    FlattenSave { uid: u64, path: std::path::PathBuf, close_after: bool },
     About,
     Shortcuts,
     Message(String),
@@ -35,11 +36,36 @@ impl Dialog {
         Dialog::LayerProps { uid: doc.uid, idx, before: l.clone(), name: l.name.clone(), visible: l.visible, opacity: l.opacity, blend: l.blend }
     }
     pub fn filter(doc: &Document, f: Filter) -> Self {
-        Dialog::Filter { uid: doc.uid, idx: doc.active, before: doc.layers[doc.active].clone(), filter: f, applied: None, sel_curve: None }
+        Dialog::Filter { uid: doc.uid, idx: doc.active, before: doc.layers[doc.active].clone(), initial: f.clone(), filter: f, applied: None, sel_curve: None, job: None, pad: None }
     }
     pub fn rotate_zoom(doc: &Document) -> Self {
         Dialog::RotateZoom { uid: doc.uid, idx: doc.active, before: doc.layers[doc.active].clone(), angle: 0.0, pan: (0.0, 0.0), zoom: 1.0, applied: None }
     }
+}
+
+/// A filter preview rendering on a worker thread.
+pub struct FilterJob {
+    filter: Filter,
+    rx: std::sync::mpsc::Receiver<tiny_skia::Pixmap>,
+}
+
+impl FilterJob {
+    fn spawn(f: &Filter, src: &tiny_skia::Pixmap, sel: Option<&tiny_skia::Mask>) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (f2, src, sel) = (f.clone(), src.clone(), sel.cloned());
+        std::thread::spawn(move || {
+            let _ = tx.send(render_filter(&f2, &src, sel.as_ref()));
+        });
+        FilterJob { filter: f.clone(), rx }
+    }
+}
+
+/// Filter applied to `src`, limited to the selection.
+fn render_filter(f: &Filter, src: &tiny_skia::Pixmap, sel: Option<&tiny_skia::Mask>) -> tiny_skia::Pixmap {
+    let adj = raster::apply_filter(f, src, sel);
+    let mut out = src.clone();
+    raster::masked_mix(src, &adj, sel, &mut out);
+    out
 }
 
 #[derive(PartialEq)]
@@ -89,20 +115,12 @@ fn int_slider(ui: &mut Ui, label: &str, v: &mut i32, lo: i32, hi: i32) {
     ui.end_row();
 }
 
-fn uint_slider(ui: &mut Ui, label: &str, v: &mut u32, lo: u32, hi: u32) {
-    ui.label(label);
-    ui.add(egui::Slider::new(v, lo..=hi));
-    ui.end_row();
-}
-
-fn f_slider(ui: &mut Ui, label: &str, v: &mut f32, lo: f32, hi: f32) {
-    ui.label(label);
-    ui.add(egui::Slider::new(v, lo..=hi));
-    ui.end_row();
-}
-
 /// Filter-specific controls. Returns nothing; mutates the filter.
-fn filter_controls(ui: &mut Ui, f: &mut Filter, sel_curve: &mut Option<usize>) {
+fn filter_controls(ui: &mut Ui, f: &mut Filter, sel_curve: &mut Option<usize>, pad: Option<&egui::TextureHandle>) {
+    if let Filter::Fx(s) = f {
+        fx_controls(ui, s, pad);
+        return;
+    }
     egui::Grid::new("fgrid").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| match f {
         Filter::BrightnessContrast { brightness, contrast } => {
             int_slider(ui, "Brightness", brightness, -100, 100);
@@ -149,26 +167,171 @@ fn filter_controls(ui: &mut Ui, f: &mut Filter, sel_curve: &mut Option<usize>) {
             curve_editor(ui, points, sel_curve);
             ui.end_row();
         }
-        Filter::GaussianBlur { radius } => uint_slider(ui, "Radius", radius, 0, 100),
-        Filter::Sharpen { amount } => uint_slider(ui, "Amount", amount, 1, 20),
-        Filter::AddNoise { intensity, saturation, coverage } => {
-            uint_slider(ui, "Intensity", intensity, 0, 100);
-            uint_slider(ui, "Color saturation", saturation, 0, 400);
-            uint_slider(ui, "Coverage", coverage, 0, 100);
-        }
-        Filter::Pixelate { cell } => uint_slider(ui, "Cell size", cell, 1, 100),
-        Filter::Emboss { angle } => f_slider(ui, "Angle", angle, -180.0, 180.0),
-        Filter::EdgeDetect { angle } => f_slider(ui, "Angle", angle, -180.0, 180.0),
-        Filter::Vignette { radius, strength } => {
-            f_slider(ui, "Radius", radius, 0.1, 1.5);
-            f_slider(ui, "Strength", strength, 0.0, 1.0);
-        }
-        Filter::OilPaint { radius } => uint_slider(ui, "Brush size", radius, 1, 8),
         _ => {
             ui.label("No options");
             ui.end_row();
         }
     });
+}
+
+fn col32(c: Col) -> Color32 {
+    Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a)
+}
+
+/// Pseudo-random seed for the "Reseed" button.
+fn new_seed() -> u32 {
+    let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(7) as u64;
+    let mut x = n ^ 0x9E37_79B9_7F4A_7C15;
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    (x ^ (x >> 29)) as u32 | 1
+}
+
+/// Circular angle chooser; returns true when changed.
+fn angle_dial(ui: &mut Ui, deg: &mut f32) -> bool {
+    let size = 34.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click_and_drag());
+    let c = rect.center();
+    let r = size * 0.5 - 2.0;
+    let v = ui.visuals();
+    let p = ui.painter();
+    p.circle(c, r, v.extreme_bg_color, v.widgets.inactive.bg_stroke);
+    let a = deg.to_radians();
+    let tip = c + vec2(a.cos(), -a.sin()) * (r - 2.0);
+    p.line_segment([c, tip], Stroke::new(2.0f32, v.selection.bg_fill));
+    p.circle_filled(tip, 3.0, v.selection.bg_fill);
+    p.circle_filled(c, 2.0, v.text_color());
+    if resp.dragged() || resp.clicked() {
+        if let Some(pos) = resp.interact_pointer_pos() {
+            let d = pos - c;
+            if d.length() > 1.0 {
+                let mut n = (-d.y).atan2(d.x).to_degrees();
+                if ui.input(|i| i.modifiers.shift) {
+                    n = (n / 15.0).round() * 15.0;
+                }
+                *deg = (n * 100.0).round() / 100.0;
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Point chooser: thumbnail of the layer with a draggable crosshair. Offsets are in -1..1.
+fn point_pad(ui: &mut Ui, pt: &mut (f32, f32), pad: Option<&egui::TextureHandle>) {
+    let aspect = pad.map(|t| t.size_vec2()).map(|s| s.y / s.x.max(1.0)).unwrap_or(0.75).clamp(0.25, 2.0);
+    let w = if aspect > 1.0 { 180.0 / aspect } else { 180.0 };
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, w * aspect), Sense::click_and_drag());
+    let v = ui.visuals().clone();
+    let p = ui.painter();
+    p.rect_filled(rect, 3.0, v.extreme_bg_color);
+    if let Some(t) = pad {
+        p.image(t.id(), rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+    }
+    p.rect_stroke(rect, 3.0, v.widgets.inactive.bg_stroke, egui::StrokeKind::Inside);
+    if (resp.dragged() || resp.clicked()) && resp.interact_pointer_pos().is_some() {
+        let pos = resp.interact_pointer_pos().unwrap();
+        pt.0 = (((pos.x - rect.min.x) / rect.width()) * 2.0 - 1.0).clamp(-1.0, 1.0);
+        pt.1 = (((pos.y - rect.min.y) / rect.height()) * 2.0 - 1.0).clamp(-1.0, 1.0);
+    }
+    let c = egui::pos2(rect.min.x + (pt.0 + 1.0) * 0.5 * rect.width(), rect.min.y + (pt.1 + 1.0) * 0.5 * rect.height());
+    for (s, col) in [(3.0f32, Color32::from_black_alpha(160)), (1.0, Color32::WHITE)] {
+        let st = Stroke::new(s, col);
+        p.line_segment([egui::pos2(c.x - 9.0, c.y), egui::pos2(c.x + 9.0, c.y)], st);
+        p.line_segment([egui::pos2(c.x, c.y - 9.0), egui::pos2(c.x, c.y + 9.0)], st);
+        p.circle_stroke(c, 5.0, st);
+    }
+}
+
+/// Generic controls generated from an effect's parameter specification.
+fn fx_controls(ui: &mut Ui, s: &mut crate::fx::FxState, pad: Option<&egui::TextureHandle>) {
+    use crate::fx::{P, V};
+    let specs = s.kind.params();
+    egui::Grid::new("fxgrid").num_columns(2).spacing(vec2(12.0, 8.0)).min_col_width(110.0).show(ui, |ui| {
+        for (k, spec) in specs.iter().enumerate() {
+            let val = &mut s.vals[k];
+            if !matches!(spec, P::Seed | P::Bool(..)) {
+                ui.label(spec.label());
+            } else {
+                ui.label("");
+            }
+            match (*spec, val) {
+                (P::Int(_, lo, hi, _), V::I(v)) => {
+                    ui.add(egui::Slider::new(v, lo..=hi));
+                }
+                (P::Float(_, lo, hi, _), V::F(v)) => {
+                    let log = lo > 0.0 && hi / lo >= 100.0;
+                    ui.add(egui::Slider::new(v, lo..=hi).logarithmic(log).max_decimals(2));
+                }
+                (P::Angle(..), V::F(v)) => {
+                    ui.horizontal(|ui| {
+                        angle_dial(ui, v);
+                        ui.add(egui::Slider::new(v, -180.0..=180.0).suffix("°").max_decimals(2));
+                    });
+                }
+                (P::Bool(l, _), V::B(v)) => {
+                    ui.checkbox(v, l);
+                }
+                (P::Choice(_, opts, _), V::C(v)) => {
+                    egui::ComboBox::from_id_salt(("fxc", k)).width(170.0).selected_text(opts.get(*v).copied().unwrap_or("")).show_ui(ui, |ui| {
+                        for (i, o) in opts.iter().enumerate() {
+                            ui.selectable_value(v, i, *o);
+                        }
+                    });
+                }
+                (P::Color(..), V::Col(c)) => {
+                    let mut c32 = col32(*c);
+                    if ui.color_edit_button_srgba(&mut c32).changed() {
+                        let [r, g, b, a] = c32.to_srgba_unmultiplied();
+                        *c = Col::rgba(r, g, b, a);
+                    }
+                }
+                (P::Point(_), V::Pt(x, y)) => {
+                    ui.vertical(|ui| {
+                        let mut pt = (*x, *y);
+                        point_pad(ui, &mut pt, pad);
+                        ui.horizontal(|ui| {
+                            ui.label("X");
+                            ui.add(egui::DragValue::new(&mut pt.0).range(-1.0..=1.0).speed(0.005).max_decimals(2));
+                            ui.label("Y");
+                            ui.add(egui::DragValue::new(&mut pt.1).range(-1.0..=1.0).speed(0.005).max_decimals(2));
+                            if ui.small_button("Center").clicked() {
+                                pt = (0.0, 0.0);
+                            }
+                        });
+                        (*x, *y) = pt;
+                    });
+                }
+                (P::Seed, V::Seed(v)) => {
+                    if ui.button("Reseed").clicked() {
+                        *v = new_seed();
+                    }
+                }
+                _ => {
+                    ui.label("?");
+                }
+            }
+            ui.end_row();
+        }
+    });
+}
+
+/// Downscaled copy of a layer for the point chooser.
+fn pad_texture(ctx: &egui::Context, src: &tiny_skia::Pixmap) -> egui::TextureHandle {
+    let s = (180.0 / src.width().max(src.height()) as f32).min(1.0);
+    let (w, h) = (((src.width() as f32 * s).round() as u32).max(1), ((src.height() as f32 * s).round() as u32).max(1));
+    let mut pm = tiny_skia::Pixmap::new(w, h).unwrap();
+    // checkerboard so transparent layers are visible
+    for y in 0..h {
+        for x in 0..w {
+            let g = if ((x / 6) + (y / 6)) % 2 == 0 { 255 } else { 220 };
+            pm.pixels_mut()[(y * w + x) as usize] = tiny_skia::PremultipliedColorU8::from_rgba(g, g, g, 255).unwrap();
+        }
+    }
+    let paint = PixmapPaint { quality: FilterQuality::Bilinear, ..Default::default() };
+    pm.draw_pixmap(0, 0, src.as_ref(), &paint, Transform::from_scale(w as f32 / src.width() as f32, h as f32 / src.height() as f32), None);
+    let img = egui::ColorImage::from_rgba_premultiplied([w as usize, h as usize], pm.data());
+    ctx.load_texture("fxpad", img, egui::TextureOptions::LINEAR)
 }
 
 fn curve_editor(ui: &mut Ui, points: &mut Vec<(u8, u8)>, sel: &mut Option<usize>) {
@@ -654,17 +817,35 @@ impl App {
                     }
                 }
             }
-            Dialog::Filter { uid, idx, before, filter, applied, sel_curve } => {
+            Dialog::Filter { uid, idx, before, filter, initial, applied, sel_curve, job, pad } => {
                 let Some(di) = self.doc_by_uid(*uid) else { return false };
                 if *idx >= self.docs[di].layers.len() {
                     return false;
                 }
+                let needs_pad = matches!(filter, Filter::Fx(s) if s.kind.params().iter().any(|p| matches!(p, crate::fx::P::Point(_))));
+                if needs_pad && pad.is_none() {
+                    *pad = Some(pad_texture(ctx, &before.pixmap));
+                }
                 let mut out = Outcome::Open;
                 let title = filter.name();
+                let busy = job.is_some();
                 egui::Modal::new("filter".into()).show(ctx, |ui| {
-                    ui.set_min_width(320.0);
+                    ui.set_min_width(360.0);
                     title_frame(ui, title);
-                    filter_controls(ui, filter, sel_curve);
+                    egui::ScrollArea::vertical().max_height(ctx.screen_rect().height() - 180.0).show(ui, |ui| {
+                        filter_controls(ui, filter, sel_curve, pad.as_ref());
+                    });
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Reset").on_hover_text("Restore the default settings").clicked() {
+                            *filter = initial.clone();
+                            *sel_curve = None;
+                        }
+                        if busy {
+                            ui.add(egui::Spinner::new().size(14.0));
+                            ui.weak("Rendering…");
+                        }
+                    });
                     out = ok_cancel(ui);
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         out = Outcome::Cancel;
@@ -674,12 +855,40 @@ impl App {
                     }
                 });
                 let doc = &mut self.docs[di];
-                if out != Outcome::Cancel && applied.as_ref() != Some(filter) {
-                    let adj = raster::apply_filter(filter, &before.pixmap, doc.selection.as_ref());
-                    let sel = doc.selection.clone();
-                    raster::masked_mix(&before.pixmap, &adj, sel.as_ref(), &mut doc.layers[*idx].pixmap);
-                    doc.changed();
-                    *applied = Some(filter.clone());
+                if out != Outcome::Cancel {
+                    // collect a finished preview
+                    if let Some(j) = job.as_ref() {
+                        match j.rx.try_recv() {
+                            Ok(pix) => {
+                                doc.layers[*idx].pixmap = pix;
+                                doc.changed();
+                                *applied = Some(j.filter.clone());
+                                *job = None;
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                *applied = Some(j.filter.clone());
+                                *job = None;
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                        }
+                    }
+                    if out == Outcome::Ok && applied.as_ref() != Some(filter) {
+                        // final result: wait for a matching render, or render now
+                        let pix = match job.take() {
+                            Some(j) if j.filter == *filter => j.rx.recv().ok(),
+                            _ => None,
+                        };
+                        let sel = doc.selection.clone();
+                        let pix = pix.unwrap_or_else(|| render_filter(filter, &before.pixmap, sel.as_ref()));
+                        doc.layers[*idx].pixmap = pix;
+                        doc.changed();
+                        *applied = Some(filter.clone());
+                    } else if job.is_none() && applied.as_ref() != Some(filter) {
+                        *job = Some(FilterJob::spawn(filter, &before.pixmap, doc.selection.as_ref()));
+                    }
+                    if job.is_some() {
+                        ctx.request_repaint_after(std::time::Duration::from_millis(15));
+                    }
                 }
                 match out {
                     Outcome::Cancel => {
@@ -697,8 +906,7 @@ impl App {
                     }
                     _ => true,
                 }
-            }
-            Dialog::RotateZoom { uid, idx, before, angle, pan, zoom, applied } => {
+            }            Dialog::RotateZoom { uid, idx, before, angle, pan, zoom, applied } => {
                 let Some(di) = self.doc_by_uid(*uid) else { return false };
                 if *idx >= self.docs[di].layers.len() {
                     return false;
@@ -786,7 +994,53 @@ impl App {
                 self.begin_paste(img, 0, 0, if nl { "Paste Into New Layer" } else { "Paste" });
                 false
             }
-            Dialog::ConfirmClose { uid } => {
+            Dialog::FlattenSave { uid, path, close_after } => {
+                let Some(di) = self.doc_by_uid(*uid) else { return false };
+                let mut choice = 0u8;
+                let n = self.docs[di].layers.len();
+                let fname = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                egui::Modal::new("flattensave".into()).show(ctx, |ui| {
+                    ui.set_width(440.0);
+                    title_frame(ui, "Flatten Image");
+                    ui.label(format!(
+                        "\"{fname}\" is a flat format, so the {n} layers will be merged in the saved file.\n\n\
+                         Your open image keeps its layers. To be able to reopen it later with layers intact, \
+                         save it as a Ferrum Paint image (.ferrum) instead."
+                    ));
+                    ui.add_space(10.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.add_sized([80.0, 26.0], egui::Button::new("Cancel")).clicked() {
+                            choice = 3;
+                        }
+                        if ui.add_sized([110.0, 26.0], egui::Button::new("Flatten & Save")).clicked() {
+                            choice = 2;
+                        }
+                        if ui.add_sized([170.0, 26.0], egui::Button::new("Save as .ferrum instead")).clicked() {
+                            choice = 1;
+                        }
+                    });
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        choice = 3;
+                    }
+                });
+                let target = match choice {
+                    1 => Some(path.with_extension("ferrum")),
+                    2 => Some(path.clone()),
+                    3 => {
+                        self.quitting = false;
+                        return false;
+                    }
+                    _ => return true,
+                };
+                if let Some(t) = target {
+                    if self.write_file(di, t) && *close_after {
+                        self.close_doc(di);
+                    } else if *close_after {
+                        self.quitting = false;
+                    }
+                }
+                false
+            }            Dialog::ConfirmClose { uid } => {
                 let Some(di) = self.doc_by_uid(*uid) else {
                     return false;
                 };
@@ -821,9 +1075,9 @@ impl App {
                 match choice {
                     1 => {
                         self.cur = di;
-                        if self.save(di, false) {
+                        if self.save_ext(di, false, true) {
                             self.close_doc(di);
-                        } else {
+                        } else if !matches!(self.dialog, Some(Dialog::FlattenSave { .. })) {
                             self.quitting = false;
                         }
                         false
