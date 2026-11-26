@@ -3,3 +3,4 @@ build.log
 test.log
 docs/shot*.png
 shots/
+dist/

@@ -24,10 +24,13 @@ pub enum LayerBlend {
     Saturation,
     Color,
     Luminosity,
+    Reflect,
+    Glow,
+    Negation,
 }
 
 impl LayerBlend {
-    pub const ALL: [LayerBlend; 18] = [
+    pub const ALL: [LayerBlend; 21] = [
         LayerBlend::Normal,
         LayerBlend::Multiply,
         LayerBlend::Additive,
@@ -46,6 +49,9 @@ impl LayerBlend {
         LayerBlend::Saturation,
         LayerBlend::Color,
         LayerBlend::Luminosity,
+        LayerBlend::Reflect,
+        LayerBlend::Glow,
+        LayerBlend::Negation,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -67,6 +73,9 @@ impl LayerBlend {
             LayerBlend::Saturation => "Saturation",
             LayerBlend::Color => "Color",
             LayerBlend::Luminosity => "Luminosity",
+            LayerBlend::Reflect => "Reflect",
+            LayerBlend::Glow => "Glow",
+            LayerBlend::Negation => "Negation",
         }
     }
     pub fn skia(self) -> BlendMode {
@@ -89,6 +98,17 @@ impl LayerBlend {
             LayerBlend::Saturation => BlendMode::Saturation,
             LayerBlend::Color => BlendMode::Color,
             LayerBlend::Luminosity => BlendMode::Luminosity,
+            // custom modes are composited by `draw_layer`; this is only a fallback
+            LayerBlend::Reflect | LayerBlend::Glow | LayerBlend::Negation => BlendMode::SourceOver,
+        }
+    }
+    /// Per-channel blend function for the modes tiny-skia doesn't provide (a = below, b = layer).
+    fn custom(self) -> Option<fn(f32, f32) -> f32> {
+        match self {
+            LayerBlend::Reflect => Some(|a, b| if b >= 1.0 { 1.0 } else { (a * a / (1.0 - b)).min(1.0) }),
+            LayerBlend::Glow => Some(|a, b| if a >= 1.0 { 1.0 } else { (b * b / (1.0 - a)).min(1.0) }),
+            LayerBlend::Negation => Some(|a, b| 1.0 - (1.0 - a - b).abs()),
+            _ => None,
         }
     }
     pub fn id(self) -> u8 {
@@ -360,6 +380,17 @@ impl Document {
     pub fn composite(&self) -> Pixmap {
         let mut out = raster::new_pixmap(self.width, self.height);
         for l in &self.layers {
+            if l.visible && l.opacity > 0 {
+                draw_layer(&mut out, &l.pixmap, l.opacity, l.blend);
+            }
+        }
+        out
+    }
+
+    #[allow(dead_code)]
+    fn composite_skia_only(&self) -> Pixmap {
+        let mut out = raster::new_pixmap(self.width, self.height);
+        for l in &self.layers {
             if !l.visible || l.opacity == 0 {
                 continue;
             }
@@ -415,12 +446,7 @@ impl Document {
         let top = self.layers.remove(self.active);
         let below = &mut self.layers[self.active - 1];
         if top.visible {
-            let paint = PixmapPaint {
-                opacity: top.opacity as f32 / 255.0,
-                blend_mode: top.blend.skia(),
-                quality: FilterQuality::Nearest,
-            };
-            below.pixmap.draw_pixmap(0, 0, top.pixmap.as_ref(), &paint, Transform::identity(), None);
+            draw_layer(&mut below.pixmap, &top.pixmap, top.opacity, top.blend);
         }
         self.active -= 1;
         self.push_history("Merge Layer Down", before);
@@ -638,5 +664,38 @@ impl Document {
             }
         }
         Some(p)
+    }
+}
+
+/// Composite `src` over `dst` with a layer opacity and blend mode.
+pub fn draw_layer(dst: &mut Pixmap, src: &Pixmap, opacity: u8, blend: LayerBlend) {
+    let Some(f) = blend.custom() else {
+        let paint = PixmapPaint { opacity: opacity as f32 / 255.0, blend_mode: blend.skia(), quality: FilterQuality::Nearest };
+        dst.draw_pixmap(0, 0, src.as_ref(), &paint, Transform::identity(), None);
+        return;
+    };
+    // Separable blend on premultiplied data: (1-sa)·D + (1-da)·S + sa·da·F(Dc, Sc).
+    let op = opacity as f32 / 255.0;
+    let s = src.data();
+    for (i, d) in dst.data_mut().chunks_exact_mut(4).enumerate() {
+        let sp = &s[i * 4..i * 4 + 4];
+        let sa = sp[3] as f32 / 255.0 * op;
+        if sa <= 0.0 {
+            continue;
+        }
+        let da = d[3] as f32 / 255.0;
+        for c in 0..3 {
+            let sc_pm = sp[c] as f32 / 255.0 * op;
+            let dc_pm = d[c] as f32 / 255.0;
+            let sc = if sa > 0.0 { (sc_pm / sa).min(1.0) } else { 0.0 };
+            let dc = if da > 0.0 { (dc_pm / da).min(1.0) } else { 0.0 };
+            let v = (1.0 - sa) * dc_pm + (1.0 - da) * sc_pm + sa * da * f(dc, sc);
+            d[c] = (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+        }
+        let a = sa + da - sa * da;
+        d[3] = (a.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+        for c in 0..3 {
+            d[c] = d[c].min(d[3]);
+        }
     }
 }

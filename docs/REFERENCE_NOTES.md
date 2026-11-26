@@ -64,3 +64,14 @@ and the user-visible descriptions of each control were used; all algorithms are 
 - Render: Clouds, Julia Fractal, Mandelbrot Fractal, Turbulence.
 - Stylize: Edge Detect, Emboss, Halftone, Outline, Relief.
 - Ctrl+F repeats the last effect with the same parameters without showing a dialog.
+## .pdn import (public sources only)
+
+- Microsoft [MS-NRBF] .NET Remoting Binary Format, open specification: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-nrbf/
+- pypdn (MIT), reader description of the PDN3 layout: https://github.com/addisonElliott/pypdn (pypdn/reader.py)
+  - "PDN3" magic, 3-byte LE header size, UTF-8 XML header (width, height, layers, savedWithVersion, thumbnail), bytes 00 01, NRBF graph.
+  - Root Document: width, height, layers (LayerList/ArrayList: _items, _size). BitmapLayer: Layer+properties (name, visible, isBackground, opacity, blendMode enum value__), surface (width, height, stride, scan0 MemoryBlock length64).
+  - After the NRBF MessageEnd, one pixel block per layer in order: format byte (0 gzip, 1 raw), BE u32 chunk size, then chunks of (BE u32 index, BE u32 size, data). BGRA, straight alpha.
+  - Blend enum order: Normal, Multiply, Additive, ColorBurn, ColorDodge, Reflect, Glow, Overlay, Difference, Negation, Lighten, Darken, Screen, Xor. 3.x uses a blendOp object named *BlendOp instead.
+  - Reflect = min(A^2/(1-B),1); Glow = min(B^2/(1-A),1); Negation = 1-|1-A-B| (A = below, B = layer), composited as (a-ab)A + (b-ab)B + ab*F.
+- Paint.NET roadmap: Paint.NET 6.0 (planned 2027) moves to a new, publicly documented .pdn format: https://paint.net/roadmap.html
+- No Paint.NET source (including the old OpenPDN tree) was consulted.

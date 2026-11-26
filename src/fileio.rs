@@ -24,6 +24,9 @@ fn file_name(p: &Path) -> String {
 pub fn load(p: &Path) -> Result<Document, String> {
     let mut doc = if ext(p) == "ferrum" {
         load_native(p)?
+    } else if ext(p) == "pdn" {
+        let bytes = std::fs::read(p).map_err(|e| e.to_string())?;
+        crate::pdn::load(&bytes, file_name(p))?
     } else {
         let px = load_flat(p)?;
         let (w, h) = (px.width(), px.height());

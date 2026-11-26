@@ -251,8 +251,9 @@ impl App {
             }
             Cmd::Open => {
                 let files = rfd::FileDialog::new()
-                    .add_filter("All images", &["ferrum", "png", "jpg", "jpeg", "bmp", "gif", "tga", "tif", "tiff", "webp", "ico"])
+                    .add_filter("All images", &["ferrum", "pdn", "png", "jpg", "jpeg", "bmp", "gif", "tga", "tif", "tiff", "webp", "ico"])
                     .add_filter("Ferrum Paint image", &["ferrum"])
+                    .add_filter("Paint.NET image (import)", &["pdn"])
                     .add_filter("All files", &["*"])
                     .pick_files();
                 for f in files.unwrap_or_default() {
@@ -564,13 +565,14 @@ impl App {
     /// (the open document always keeps its layers). Returns true once the file is written.
     pub fn save_ext(&mut self, idx: usize, save_as: bool, close_after: bool) -> bool {
         let path = match (&self.docs[idx].path, save_as) {
-            (Some(p), false) => Some(p.clone()),
+            // imported .pdn files are never written back: Save asks for a .ferrum name
+            (Some(p), false) if file_ext(p) != "pdn" => Some(p.clone()),
             _ => {
                 let doc = &self.docs[idx];
                 let stem = doc.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or(doc.name.clone());
                 let stem = stem.strip_suffix(".ferrum").map(str::to_string).unwrap_or(stem);
                 // like .pdn: new images default to the layered native format; opened files keep their type
-                let ext = doc.path.as_ref().map(|p| file_ext(p)).filter(|e| !e.is_empty()).unwrap_or_else(|| "ferrum".into());
+                let ext = doc.path.as_ref().map(|p| file_ext(p)).filter(|e| !e.is_empty() && e != "pdn").unwrap_or_else(|| "ferrum".into());
                 let mut fd = rfd::FileDialog::new().set_file_name(format!("{stem}.{ext}"));
                 if let Some(dir) = doc.path.as_ref().and_then(|p| p.parent()) {
                     fd = fd.set_directory(dir);

@@ -2,6 +2,7 @@
 //! Ferrum Paint — a clean-room raster image editor built with egui and tiny-skia.
 
 mod app;
+mod pdn;
 mod canvas;
 mod colors;
 mod dialogs;

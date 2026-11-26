@@ -451,3 +451,53 @@ fn export_writes_flat_copy_and_keeps_document() {
     assert!(d.path.is_none(), "export must not change the document's file");
     assert_eq!(a.export_paths.get(&d.uid), Some(&jpg));
 }
+/// Opens every .pdn under the folders in FERRUM_PDN_DIRS (separated by ';') and writes a
+/// flattened PNG of each to the temp folder. Run with:
+/// FERRUM_PDN_DIRS="C:\pics" cargo test --release -- --ignored pdn_import --nocapture
+#[test]
+#[ignore]
+fn pdn_import_samples() {
+    let dirs = std::env::var("FERRUM_PDN_DIRS").unwrap_or_default();
+    let out = std::env::temp_dir().join("ferrum_pdn_out");
+    let _ = std::fs::create_dir_all(&out);
+    let mut n = 0;
+    for dir in dirs.split(';').filter(|s| !s.is_empty()) {
+        let mut files = vec![];
+        let mut stack = vec![std::path::PathBuf::from(dir)];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() { stack.push(p) } else if crate::app::file_ext(&p) == "pdn" { files.push(p) }
+            }
+        }
+        for f in files {
+            let t = std::time::Instant::now();
+            match crate::fileio::load(&f) {
+                Ok(doc) => {
+                    let layers: Vec<String> = doc.layers.iter().map(|l| format!("{} [{}{} {}]", l.name, if l.visible { "" } else { "hidden " }, l.opacity, l.blend.name())).collect();
+                    println!("OK  {} {}x{} {:.2}s: {}", f.display(), doc.width, doc.height, t.elapsed().as_secs_f32(), layers.join(", "));
+                    let name = f.file_stem().unwrap().to_string_lossy().to_string();
+                    crate::fileio::export_flat(&doc, &out.join(format!("{name}.png")), 90).unwrap();
+                    n += 1;
+                }
+                Err(e) => println!("ERR {}: {e}", f.display()),
+            }
+        }
+    }
+    println!("{n} files opened; PNGs in {}", out.display());
+}
+
+#[test]
+fn pdn_rejects_garbage_and_custom_blends_work() {
+    assert!(crate::pdn::load(b"not a pdn file", "x".into()).is_err());
+    assert!(crate::pdn::load(b"PDN3\x05\x00\x00<a/>\x00\x01\x00", "x".into()).is_err());
+    use crate::document::{draw_layer, LayerBlend};
+    let mut dst = raster::new_pixmap(1, 1);
+    dst.fill(tiny_skia::Color::from_rgba8(64, 128, 192, 255));
+    let mut src = raster::new_pixmap(1, 1);
+    src.fill(tiny_skia::Color::from_rgba8(128, 128, 128, 255));
+    draw_layer(&mut dst, &src, 255, LayerBlend::Negation);
+    let p = dst.pixel(0, 0).unwrap();
+    // negation: 1 - |1 - a - b|
+    assert!((p.red() as i32 - 192).abs() <= 1 && (p.green() as i32 - 255).abs() <= 1 && (p.blue() as i32 - 191).abs() <= 2, "{p:?}");
+}

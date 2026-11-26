@@ -4,7 +4,32 @@ version = "0.1.0"
 edition = "2021"
 description = "Ferrum Paint - a clean-room raster image editor built with egui and tiny-skia"
 license = "MIT"
+authors = ["Tim Lorne"]
+repository = "https://github.com/tlorne96/FerrumPaintDotNet"
+readme = "README.md"
+build = "build.rs"
 
+[package.metadata.deb]
+name = "ferrum-paint"
+maintainer = "Tim Lorne"
+section = "graphics"
+priority = "optional"
+depends = "$auto, libgl1, libxkbcommon0, xdg-desktop-portal"
+recommends = "xdg-desktop-portal-gtk"
+extended-description = """\
+Ferrum Paint is a layered raster image editor with a familiar Windows-paint-program workflow: \
+selection and painting tools, a Shapes tool with corner and centre modes, layers with blend modes, \
+adjustments, 47 effects, and a native .ferrum format that keeps layers."""
+assets = [
+    ["target/release/ferrum-paint", "usr/bin/", "755"],
+    ["packaging/ferrum-paint.desktop", "usr/share/applications/ferrum-paint.desktop", "644"],
+    ["packaging/ferrum-paint-mime.xml", "usr/share/mime/packages/ferrum-paint.xml", "644"],
+    ["packaging/icons/ferrum-paint-48.png", "usr/share/icons/hicolor/48x48/apps/ferrum-paint.png", "644"],
+    ["packaging/icons/ferrum-paint-64.png", "usr/share/icons/hicolor/64x64/apps/ferrum-paint.png", "644"],
+    ["packaging/icons/ferrum-paint-128.png", "usr/share/icons/hicolor/128x128/apps/ferrum-paint.png", "644"],
+    ["packaging/icons/ferrum-paint-256.png", "usr/share/icons/hicolor/256x256/apps/ferrum-paint.png", "644"],
+    ["README.md", "usr/share/doc/ferrum-paint/README.md", "644"],
+]
 [dependencies]
 eframe = { version = "=0.31.1", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
 egui = "=0.31.1"
@@ -13,7 +38,11 @@ tiny-skia = "=0.11.4"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga", "tiff", "webp", "ico"] }
 ab_glyph = "0.2"
 arboard = { version = "3.4", default-features = false, features = ["image-data"] }
+flate2 = "1.1"
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
 
 [profile.dev]
 opt-level = 1
