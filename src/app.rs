@@ -108,6 +108,7 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, files: Vec<PathBuf>) -> Self {
         let ctx = &cc.egui_ctx;
         ctx.set_visuals(egui::Visuals::light());
+        ctx.set_fonts(ui_fonts());
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.style_mut(|s| {
             s.spacing.item_spacing = egui::vec2(6.0, 4.0);
@@ -1006,4 +1007,19 @@ impl eframe::App for App {
 
 pub fn brush_presets() -> &'static [f32] {
     &BRUSH_PRESETS
+}
+
+/// egui's default UI font lacks several arrows and symbols used in labels
+/// (→ ← ↑ ↓ ⇄ ● ▸ …). Add the bundled monospace font as a final fallback for
+/// proportional text so they never render as boxes.
+pub fn ui_fonts() -> egui::FontDefinitions {
+    let mut defs = egui::FontDefinitions::default();
+    let mono = defs.families.get(&egui::FontFamily::Monospace).cloned().unwrap_or_default();
+    let prop = defs.families.entry(egui::FontFamily::Proportional).or_default();
+    for name in mono {
+        if !prop.contains(&name) {
+            prop.push(name);
+        }
+    }
+    defs
 }

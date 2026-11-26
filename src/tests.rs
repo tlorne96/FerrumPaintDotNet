@@ -301,3 +301,35 @@ fn rect_select_then_crop() {
     a.docs[0].undo();
     assert_eq!((a.docs[0].width, a.docs[0].height), (100, 80));
 }
+
+/// Every non-ASCII character used anywhere in the UI source must exist in the
+/// proportional font chain, otherwise it renders as a box.
+#[test]
+fn all_ui_glyphs_render() {
+    use ab_glyph::Font;
+    let defs = crate::app::ui_fonts();
+    let fam = &defs.families[&egui::FontFamily::Proportional];
+    let fonts: Vec<ab_glyph::FontRef> = fam
+        .iter()
+        .map(|n| ab_glyph::FontRef::try_from_slice(&defs.font_data[n].font).unwrap())
+        .collect();
+    let sources = [
+        include_str!("app.rs"), include_str!("ui.rs"), include_str!("canvas.rs"),
+        include_str!("colors.rs"), include_str!("dialogs.rs"), include_str!("document.rs"),
+        include_str!("fileio.rs"), include_str!("tools.rs"), include_str!("raster.rs"),
+    ];
+    let mut missing = std::collections::BTreeSet::new();
+    for src in sources {
+        for line in src.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            for ch in line.chars().filter(|c| !c.is_ascii()) {
+                if !fonts.iter().any(|f| f.glyph_id(ch).0 != 0) {
+                    missing.insert(format!("{ch} U+{:04X}", ch as u32));
+                }
+            }
+        }
+    }
+    assert!(missing.is_empty(), "glyphs missing from UI fonts: {missing:?}");
+}
