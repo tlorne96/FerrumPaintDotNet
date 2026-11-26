@@ -5,3 +5,5 @@ docs/shot*.png
 shots/
 dist/
 desktop.ini
+
+/skill-dist/
