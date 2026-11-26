@@ -31,7 +31,7 @@ fn main() -> eframe::Result<()> {
         println!("wrote {path}");
         return Ok(());
     }
-// `--register-file-type` (Windows): associate .ferrum files with this executable for the current user.
+    // `--register-file-type` (Windows): associate .ferrum files with this executable for the current user.
     if args.first().map(|s| s == "--register-file-type").unwrap_or(false) {
         match register_file_type() {
             Ok(()) => println!(".ferrum files now open with Ferrum Paint"),
@@ -58,11 +58,14 @@ fn main() -> eframe::Result<()> {
 #[cfg(windows)]
 fn register_file_type() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    // Prefer an .ico installed next to the exe (the exe itself has no embedded icon resource).
+    let ico = exe.with_file_name("ferrum-paint.ico");
+    let icon = if ico.exists() { format!("\"{}\"", ico.display()) } else { format!("\"{}\",0", exe.display()) };
     let exe = exe.to_string_lossy();
     let keys = [
         (r"HKCU\Software\Classes\.ferrum", String::from("FerrumPaint.Image")),
         (r"HKCU\Software\Classes\FerrumPaint.Image", String::from("Ferrum Paint image")),
-        (r"HKCU\Software\Classes\FerrumPaint.Image\DefaultIcon", format!("\"{exe}\",0")),
+        (r"HKCU\Software\Classes\FerrumPaint.Image\DefaultIcon", icon),
         (r"HKCU\Software\Classes\FerrumPaint.Image\shell\open\command", format!("\"{exe}\" \"%1\"")),
     ];
     for (k, v) in keys {

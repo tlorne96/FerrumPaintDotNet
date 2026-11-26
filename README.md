@@ -80,6 +80,8 @@ The full list is under **Help → Keyboard Shortcuts** (F1) in the app.
 
 ## Building
 
+**Just want to install it?** See [INSTALL.md](INSTALL.md) for step-by-step instructions for Windows and Ubuntu, with one-command installers (`packaging/install-windows.ps1`, `packaging/install-linux.sh`).
+
 You need a recent stable Rust toolchain (installed through [rustup](https://rustup.rs)).
 
 ### Windows
@@ -160,9 +162,10 @@ ferrum-paint --write-icon icon.png 256
 
 - There is no printing, no plugin system, and no support for Paint.NET's `.pdn` files.
 - Effects follow Paint.NET's names, menus and controls, but the algorithms are original, so results will not be pixel-identical. Mosaic offers 7 tile shapes rather than Paint.NET's 21. Fractal colouring uses our own palette.
-- Effect previews of heavy effects on very large images take a second or two to appear.- The Text tool uses the two fonts bundled with egui. It does not use system fonts.
+- Effect previews of heavy effects on very large images take a second or two to appear.
+- The Text tool uses the two fonts bundled with egui. It does not use system fonts.
 - The Ubuntu 26.04 build has not been tested on real hardware. Development and testing were done on Windows, and the Linux code paths rely on the platform layers of winit, arboard and rfd.
 
 ## Licence
 
-Copyright © Tim Lorne. Add your preferred licence here before distributing.
+Copyright (c) 2026 Tim Lorne. Released under the MIT licence; see [LICENSE](LICENSE).
