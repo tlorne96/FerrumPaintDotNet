@@ -42,12 +42,14 @@ Ferrum Paint is an independent clean-room implementation. Its behaviour is based
   - Dialogs are generated from each effect's parameter list: sliders, an angle dial, drop-downs, colour pickers, a centre-point pad over a thumbnail of the layer, Reseed and Reset.
   - The preview renders on a background thread, so the UI stays responsive. Cancel restores the original, and effects apply only inside the selection.
   - Ctrl+F repeats the last effect with the same settings.
+- **Snap to Grid** (**View → Snap to Grid**, Ctrl+; or the toolbar magnet-grid button): shapes, lines/curves, rectangle and ellipse selections, gradients, text placement and moves snap to a grid. The grid size (default 16 px) is set in the View menu or in the toolbar next to the button, and the grid is drawn over the canvas while snapping is on. Freehand tools (brush, pencil, eraser, lasso, etc.) are never snapped. The setting is remembered.
 - **Look**: light and dark themes (**View → Dark Theme**, remembered between sessions; the first run follows the system theme), native UI font (Segoe UI on Windows, Ubuntu on Ubuntu), compact tool-window headers.
 - **Clipboard**: cut, copy, copy merged, paste, paste into new layer and paste into new image. Images are exchanged with other applications through the system clipboard.
 - **Files**:
   - Native layered format: `.ferrum`. Like `.pdn`, it keeps every layer with its name, visibility, opacity and blend mode, so you can close the app and carry on later without merging anything.
   - New images save as `.ferrum` by default. If you save a layered image as PNG, JPEG or another flat format, Ferrum Paint asks first and offers **Save as .ferrum instead**. Flattening only affects the exported file; the open image keeps its layers.
-  - File association: `install-linux.sh` registers the `application/x-ferrum-paint` MIME type on Ubuntu. On Windows, run `ferrum-paint.exe --register-file-type` once to make `.ferrum` files open in Ferrum Paint (current user only).  - Import and export: PNG, JPEG, BMP, GIF, TIFF, WebP, TGA and ICO. JPEG is composited over white; ICO is limited to 256×256.
+  - File association: `install-linux.sh` registers the `application/x-ferrum-paint` MIME type on Ubuntu. On Windows, run `ferrum-paint.exe --register-file-type` once to make `.ferrum` files open in Ferrum Paint (current user only).  - **File → Export...** (Ctrl+Alt+E) writes a flattened PNG, JPEG (with a quality slider), BMP, TGA, TIFF or WebP copy. The open image keeps its layers, its file name and its saved state, so Ctrl+S still saves the layered `.ferrum`. The next export starts with the same file name and folder.
+  - Import and export: PNG, JPEG, BMP, GIF, TIFF, WebP, TGA and ICO. JPEG is composited over white; ICO is limited to 256×256.
   - Files can be opened from the command line or by drag-and-drop.
   - Saves are atomic: the file is written to a temporary file and then renamed.
   - Closing an image with unsaved changes asks before discarding them.
@@ -64,6 +66,8 @@ The full list is under **Help → Keyboard Shortcuts** (F1) in the app.
 | X | Swap primary and secondary colours |
 | Enter / Esc | Finish the current shape, line, text or gradient |
 | Ctrl+N / O / S / Shift+S / W | New / Open / Save / Save As / Close |
+| Ctrl+Alt+E | Export a flattened PNG/JPEG copy |
+| Ctrl+; | Snap to Grid on/off |
 | Ctrl+Z / Ctrl+Y | Undo / Redo |
 | Ctrl+X / C / V, Ctrl+Shift+C / V, Ctrl+Alt+V | Cut, copy, paste, copy merged, paste into new layer, paste into new image |
 | Ctrl+A / D / I | Select all / Deselect / Invert selection |

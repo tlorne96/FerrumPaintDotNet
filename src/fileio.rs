@@ -138,10 +138,15 @@ fn write_atomic(p: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 pub fn save(doc: &Document, p: &Path) -> Result<(), String> {
-    let e = ext(p);
-    if e == "ferrum" {
+    if ext(p) == "ferrum" {
         return save_native(doc, p);
     }
+    export_flat(doc, p, 95)
+}
+
+/// Write a flattened copy of the image (format from the extension). The document is untouched.
+pub fn export_flat(doc: &Document, p: &Path, jpeg_quality: u8) -> Result<(), String> {
+    let e = ext(p);
     let comp = doc.composite();
     let (w, h) = (comp.width(), comp.height());
     let rgba = raster::pixmap_to_straight(&comp);
@@ -167,7 +172,7 @@ pub fn save(doc: &Document, p: &Path) -> Result<(), String> {
             }
         }
         let img = image::RgbImage::from_raw(w, h, rgb).ok_or("encode error")?;
-        let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 95);
+        let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, jpeg_quality.clamp(1, 100));
         img.write_with_encoder(enc).map_err(|e| e.to_string())?;
     } else {
         if fmt == image::ImageFormat::Ico && (w > 256 || h > 256) {

@@ -16,6 +16,7 @@ pub enum Dialog {
     PasteExpand { img: tiny_skia::Pixmap, new_layer: bool },
     ConfirmClose { uid: u64 },
     FlattenSave { uid: u64, path: std::path::PathBuf, close_after: bool },
+    ExportJpeg { uid: u64, path: std::path::PathBuf, quality: u8 },
     About,
     Shortcuts,
     Message(String),
@@ -446,6 +447,7 @@ pub const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         ("Ctrl+N / Ctrl+O", "New / Open"),
         ("Ctrl+S / Ctrl+Shift+S", "Save / Save As"),
         ("Ctrl+Alt+S", "Save All"),
+        ("Ctrl+Alt+E", "Export a flattened PNG/JPEG copy (keeps your layered file)"),
         ("Ctrl+W", "Close image"),
     ]),
     ("Edit", &[
@@ -463,6 +465,7 @@ pub const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         ("Ctrl+Shift+B", "Zoom to selection"),
         ("Ctrl+0", "Actual size"),
         ("Ctrl+'", "Pixel grid"),
+        ("Ctrl+;", "Snap to grid (size in View menu / toolbar)"),
         ("F5 – F8", "Toggle Tools / History / Layers / Colors (Ctrl+Shift resets)"),
         ("Ctrl+Tab, Ctrl+1–9", "Switch image"),
     ]),
@@ -1041,7 +1044,49 @@ impl App {
                     }
                 }
                 false
-            }            Dialog::ConfirmClose { uid } => {
+            }
+            Dialog::ExportJpeg { uid, path, quality } => {
+                let Some(di) = self.doc_by_uid(*uid) else { return false };
+                let mut choice = 0u8;
+                let fname = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                egui::Modal::new("exportjpeg".into()).show(ctx, |ui| {
+                    ui.set_width(360.0);
+                    title_frame(ui, "JPEG Quality");
+                    ui.label(format!("Exporting \"{fname}\". Layers are flattened and transparency becomes white in the exported file only."));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.label("Quality:");
+                        ui.add(egui::Slider::new(quality, 1..=100));
+                    });
+                    ui.add_space(10.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.add_sized([80.0, 26.0], egui::Button::new("Cancel")).clicked() {
+                            choice = 2;
+                        }
+                        if ui.add_sized([80.0, 26.0], egui::Button::new("OK")).clicked() {
+                            choice = 1;
+                        }
+                    });
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        choice = 2;
+                    }
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        choice = 1;
+                    }
+                });
+                match choice {
+                    1 => {
+                        let (p, q) = (path.clone(), *quality);
+                        self.jpeg_quality = q;
+                        crate::theme::save_pref("jpeg_quality", &q.to_string());
+                        self.write_export(di, p, q);
+                        false
+                    }
+                    2 => false,
+                    _ => true,
+                }
+            }
+            Dialog::ConfirmClose { uid } => {
                 let Some(di) = self.doc_by_uid(*uid) else {
                     return false;
                 };

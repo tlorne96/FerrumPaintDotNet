@@ -61,6 +61,7 @@ impl App {
             if item(ui, "Save", "Ctrl+S", has) { c(Cmd::Save, true) }
             if item(ui, "Save As...", "Ctrl+Shift+S", has) { c(Cmd::SaveAs, true) }
             if item(ui, "Save All", "Ctrl+Alt+S", has) { c(Cmd::SaveAll, true) }
+            if item(ui, "Export...", "Ctrl+Alt+E", has) { c(Cmd::Export, true) }
             ui.separator();
             if item(ui, "Close", "Ctrl+W", has) { c(Cmd::Close, true) }
             ui.separator();
@@ -95,6 +96,14 @@ impl App {
             ui.separator();
             let g = if self.show_grid { "✔ Pixel Grid" } else { "Pixel Grid" };
             if item(ui, g, "Ctrl+'", has) { c(Cmd::ToggleGrid, true) }
+            let s = if self.snap { "✔ Snap to Grid" } else { "Snap to Grid" };
+            if item(ui, s, "Ctrl+;", true) { c(Cmd::ToggleSnap, true) }
+            ui.horizontal(|ui| {
+                ui.add_space(22.0);
+                ui.label("Grid size:");
+                let r = ui.add(egui::DragValue::new(&mut self.grid_size).range(2..=1024).suffix(" px").speed(0.25));
+                if r.changed() { crate::theme::save_pref("grid", &self.grid_size.to_string()) }
+            });
             ui.separator();
             let d = if self.dark { "✔ Dark Theme" } else { "Dark Theme" };
             if item(ui, d, "", true) { c(Cmd::ToggleTheme, true) }
@@ -251,7 +260,7 @@ impl App {
 
     fn main_toolbar(&mut self, ui: &mut Ui, cmds: &mut Vec<Cmd>) {
         let sz = 24.0;
-        let buttons: [(Icon, Cmd, &str); 11] = [
+        let buttons: [(Icon, Cmd, &str); 12] = [
             (Icon::New, Cmd::New, "New (Ctrl+N)"),
             (Icon::Open, Cmd::Open, "Open (Ctrl+O)"),
             (Icon::Save, Cmd::Save, "Save (Ctrl+S)"),
@@ -263,15 +272,21 @@ impl App {
             (Icon::Undo, Cmd::Undo, "Undo (Ctrl+Z)"),
             (Icon::Redo, Cmd::Redo, "Redo (Ctrl+Y)"),
             (Icon::Grid, Cmd::ToggleGrid, "Toggle Pixel Grid (Ctrl+')"),
+            (Icon::Snap, Cmd::ToggleSnap, "Snap to Grid (Ctrl+;) - shapes, lines, selections, gradients, text and moves snap to the grid"),
         ];
         for (i, (icon, cmd, tip)) in buttons.into_iter().enumerate() {
             if matches!(i, 3 | 6 | 8 | 10) {
                 ui.separator();
             }
-            let sel = matches!(cmd, Cmd::ToggleGrid) && self.show_grid;
+            let sel = (matches!(cmd, Cmd::ToggleGrid) && self.show_grid) || (matches!(cmd, Cmd::ToggleSnap) && self.snap);
             if icon_button(ui, icon, sel, sz, tip).clicked() {
                 cmds.push(cmd);
             }
+        }
+        if self.snap {
+            let r = ui.add(egui::DragValue::new(&mut self.grid_size).range(2..=1024).suffix(" px").speed(0.25));
+            if r.changed() { crate::theme::save_pref("grid", &self.grid_size.to_string()) }
+            r.on_hover_text("Grid size");
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let wins = [(Icon::Colors, 3u8, "Colors (F8)"), (Icon::Layers, 2, "Layers (F7)"), (Icon::History, 1, "History (F6)"), (Icon::Tools, 0, "Tools (F5)")];

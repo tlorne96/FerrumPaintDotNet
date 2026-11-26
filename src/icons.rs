@@ -17,6 +17,7 @@ pub enum Icon {
     Undo,
     Redo,
     Grid,
+    Snap,
     LayerAdd,
     LayerDelete,
     LayerDuplicate,
@@ -254,6 +255,16 @@ pub fn paint_icon(p: &Painter, r: Rect, icon: Icon) {
                 k.line((v, 0.15), (v, 0.85), 1.0, INK);
                 k.line((0.15, v), (0.85, v), 1.0, INK);
             }
+        }
+        Icon::Snap => {
+            // dot grid with a rectangle whose corners sit on grid points
+            for i in 0..4 {
+                for j in 0..4 {
+                    k.circle(0.14 + i as f32 * 0.24, 0.14 + j as f32 * 0.24, 0.035, INK, 0.0, INK);
+                }
+            }
+            k.rect(0.38, 0.38, 0.86, 0.86, Color32::from_rgba_unmultiplied(70, 130, 220, 70), 1.6, BLUE);
+            k.circle(0.38, 0.38, 0.07, BLUE, 0.0, BLUE);
         }
         Icon::LayerAdd | Icon::LayerDelete | Icon::LayerDuplicate | Icon::LayerMerge | Icon::LayerUp | Icon::LayerDown | Icon::LayerProps => {
             k.poly(&[(0.1, 0.55), (0.5, 0.35), (0.9, 0.55), (0.5, 0.75)], Color32::from_rgb(170, 190, 220), 1.0, INK);

@@ -628,6 +628,7 @@ impl App {
     // Mouse handlers
 
     pub(crate) fn tool_press(&mut self, btn: PointerButton, p: Pos2, m: Modifiers) {
+        let p = self.snap_pt(p);
         let right = btn == PointerButton::Secondary;
         let zoom = self.docs[self.cur].view.zoom;
         let tol = 7.0 / zoom;
@@ -888,6 +889,7 @@ impl App {
     }
 
     pub(crate) fn tool_drag(&mut self, p: Pos2, m: Modifiers) {
+        let p = self.snap_pt(p);
         self.pending_dirty = true;
         let from_center = self.ts.from_center;
         let bw = self.ts.brush_width;
@@ -1055,6 +1057,7 @@ impl App {
     }
 
     pub(crate) fn tool_release(&mut self, p: Pos2, _m: Modifiers) {
+        let p = self.snap_pt(p);
         self.pending_dirty = true;
         let zoom = self.docs[self.cur].view.zoom;
         match &mut self.pending {
@@ -1479,6 +1482,30 @@ impl App {
             for y in (tl.y.floor().max(0.0) as i32)..=(br.y.ceil().min(doc.height as f32) as i32) {
                 let sy = self.to_screen(rect, pos2(0.0, y as f32)).y;
                 painter.line_segment([pos2(vis.left(), sy), pos2(vis.right(), sy)], stroke);
+            }
+        }
+
+        // snap grid (every `grid_size` px, hidden when the lines would be too dense)
+        if self.snap {
+            let g = self.grid_size.max(1) as f32;
+            if g * zoom >= 6.0 {
+                let vis = img_rect.intersect(rect);
+                let tl = self.to_image(rect, vis.min);
+                let br = self.to_image(rect, vis.max);
+                let acc = crate::theme::pal(ui.visuals().dark_mode).accent;
+                let stroke = Stroke::new(1.0f32, acc.gamma_multiply(0.45));
+                let (x0, x1) = ((tl.x.max(0.0) / g).floor() as i32, (br.x.min(doc.width as f32) / g).ceil() as i32);
+                let (y0, y1) = ((tl.y.max(0.0) / g).floor() as i32, (br.y.min(doc.height as f32) / g).ceil() as i32);
+                for i in x0..=x1 {
+                    let x = (i as f32 * g).min(doc.width as f32);
+                    let sx = self.to_screen(rect, pos2(x, 0.0)).x.round() + 0.5;
+                    painter.line_segment([pos2(sx, vis.top()), pos2(sx, vis.bottom())], stroke);
+                }
+                for i in y0..=y1 {
+                    let y = (i as f32 * g).min(doc.height as f32);
+                    let sy = self.to_screen(rect, pos2(0.0, y)).y.round() + 0.5;
+                    painter.line_segment([pos2(vis.left(), sy), pos2(vis.right(), sy)], stroke);
+                }
             }
         }
 

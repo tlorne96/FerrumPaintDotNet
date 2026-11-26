@@ -184,19 +184,33 @@ fn settings_path() -> Option<std::path::PathBuf> {
     base.map(|b| b.join("settings.ini"))
 }
 
+/// Read one `key=value` setting (`None` = not set yet).
+pub fn load_pref(key: &str) -> Option<String> {
+    let text = std::fs::read_to_string(settings_path()?).ok()?;
+    let pre = format!("{key}=");
+    text.lines().find_map(|l| l.strip_prefix(pre.as_str())).map(|v| v.trim().to_string())
+}
+
+/// Write one `key=value` setting, keeping the others.
+pub fn save_pref(key: &str, value: &str) {
+    let Some(p) = settings_path() else { return };
+    if let Some(dir) = p.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let pre = format!("{key}=");
+    let old = std::fs::read_to_string(&p).unwrap_or_default();
+    let mut out: String = old.lines().filter(|l| !l.starts_with(pre.as_str()) && !l.trim().is_empty()).map(|l| format!("{l}\n")).collect();
+    out.push_str(&format!("{key}={value}\n"));
+    let _ = std::fs::write(p, out);
+}
+
 /// Saved theme preference (`None` = not set yet).
 pub fn load_dark_pref() -> Option<bool> {
-    let text = std::fs::read_to_string(settings_path()?).ok()?;
-    text.lines().find_map(|l| l.strip_prefix("theme=")).map(|v| v.trim() == "dark")
+    load_pref("theme").map(|v| v == "dark")
 }
 
 pub fn save_dark_pref(dark: bool) {
-    if let Some(p) = settings_path() {
-        if let Some(dir) = p.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let _ = std::fs::write(p, format!("theme={}\n", if dark { "dark" } else { "light" }));
-    }
+    save_pref("theme", if dark { "dark" } else { "light" });
 }
 
 // ----------------------------------------------------------------------------------------------

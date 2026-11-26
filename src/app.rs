@@ -18,6 +18,7 @@ pub enum Cmd {
     Save,
     SaveAs,
     SaveAll,
+    Export,
     Close,
     Exit,
     Undo,
@@ -39,6 +40,7 @@ pub enum Cmd {
     ZoomSelection,
     ActualSize,
     ToggleGrid,
+    ToggleSnap,
     Crop,
     Resize,
     CanvasSize,
@@ -85,6 +87,12 @@ pub struct App {
     pub show: [bool; 4],
     pub window_gen: [u32; 4],
     pub show_grid: bool,
+    /// Snap drawing and selection tools to a grid of `grid_size` pixels.
+    pub snap: bool,
+    pub grid_size: u32,
+    pub jpeg_quality: u8,
+    /// Last export path per document uid, so repeated exports start in the same place.
+    pub export_paths: std::collections::HashMap<u64, PathBuf>,
     pub dialog: Option<Dialog>,
     pub last_effect: Option<Filter>,
     pub status_pos: Option<(i32, i32)>,
@@ -115,6 +123,9 @@ impl App {
         crate::theme::apply(ctx, dark);
         let mut app = Self::with_files(files);
         app.dark = dark;
+        app.snap = crate::theme::load_pref("snap").map(|v| v == "on").unwrap_or(false);
+        app.grid_size = crate::theme::load_pref("grid").and_then(|v| v.parse().ok()).unwrap_or(16u32).clamp(2, 1024);
+        app.jpeg_quality = crate::theme::load_pref("jpeg_quality").and_then(|v| v.parse().ok()).unwrap_or(95u8).clamp(1, 100);
         // Developer aid for UI screenshots: FERRUM_OPEN_EFFECT="Bulge" opens that effect's dialog.
         if let Ok(name) = std::env::var("FERRUM_OPEN_EFFECT") {
             if let Some(&k) = crate::fx::Fx::ALL.iter().find(|k| k.name().eq_ignore_ascii_case(&name)) {
@@ -145,6 +156,10 @@ impl App {
             show: [true; 4],
             window_gen: [0; 4],
             show_grid: false,
+            snap: false,
+            grid_size: 16,
+            jpeg_quality: 95,
+            export_paths: Default::default(),
             dialog: None,
             last_effect: None,
             status_pos: None,
@@ -327,6 +342,11 @@ impl App {
                 self.show_grid = !self.show_grid;
                 return;
             }
+            Cmd::ToggleSnap => {
+                self.snap = !self.snap;
+                crate::theme::save_pref("snap", if self.snap { "on" } else { "off" });
+                return;
+            }
             _ => {}
         }
         // Everything else commits the current edit first.
@@ -337,6 +357,7 @@ impl App {
         match cmd {
             Cmd::Save => { self.save(self.cur, false); }
             Cmd::SaveAs => { self.save(self.cur, true); }
+            Cmd::Export => self.export(self.cur),
             Cmd::SaveAll => {
                 for i in 0..self.docs.len() {
                     if self.docs[i].is_dirty() {
@@ -572,6 +593,63 @@ impl App {
         self.write_file(idx, path)
     }
 
+    /// File > Export: write a flattened PNG/JPEG/... copy. The document keeps its layers, its
+    /// file name and its saved state, so Ctrl+S still saves the layered original.
+    pub fn export(&mut self, idx: usize) {
+        let doc = &self.docs[idx];
+        let uid = doc.uid;
+        let last = self.export_paths.get(&uid).cloned();
+        let stem = doc.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or(doc.name.clone());
+        let stem = stem.strip_suffix(".ferrum").map(str::to_string).unwrap_or(stem);
+        let name = last.as_ref().and_then(|p| p.file_name()).map(|s| s.to_string_lossy().to_string()).unwrap_or(format!("{stem}.png"));
+        let mut fd = rfd::FileDialog::new().set_title("Export").set_file_name(name);
+        if let Some(dir) = last.as_ref().or(doc.path.as_ref()).and_then(|p| p.parent()) {
+            fd = fd.set_directory(dir);
+        }
+        let Some(mut path) = fd
+            .add_filter("PNG", &["png"])
+            .add_filter("JPEG", &["jpg", "jpeg"])
+            .add_filter("BMP", &["bmp"])
+            .add_filter("TGA", &["tga"])
+            .add_filter("TIFF", &["tif", "tiff"])
+            .add_filter("WebP (lossless)", &["webp"])
+            .save_file()
+        else {
+            return;
+        };
+        if file_ext(&path).is_empty() || file_ext(&path) == "ferrum" {
+            path.set_extension("png");
+        }
+        if matches!(file_ext(&path).as_str(), "jpg" | "jpeg") {
+            self.dialog = Some(Dialog::ExportJpeg { uid, path, quality: self.jpeg_quality });
+        } else {
+            self.write_export(idx, path, self.jpeg_quality);
+        }
+    }
+
+    pub fn write_export(&mut self, idx: usize, path: PathBuf, quality: u8) -> bool {
+        match fileio::export_flat(&self.docs[idx], &path, quality) {
+            Ok(()) => {
+                self.status_msg = format!("Exported {}", path.display());
+                self.export_paths.insert(self.docs[idx].uid, path);
+                true
+            }
+            Err(e) => {
+                self.msg(format!("Could not export:\n{e}"));
+                false
+            }
+        }
+    }
+
+    /// Round an image-space point to the snap grid when snapping is on and the tool uses it.
+    pub fn snap_pt(&self, p: egui::Pos2) -> egui::Pos2 {
+        if !self.snap || !crate::tools::snaps(self.tool) {
+            return p;
+        }
+        let g = self.grid_size.max(1) as f32;
+        egui::pos2((p.x / g).round() * g, (p.y / g).round() * g)
+    }
+
     /// Write the document to `path` (format from the extension) and mark it saved.
     pub fn write_file(&mut self, idx: usize, path: std::path::PathBuf) -> bool {
         match fileio::save(&self.docs[idx], &path) {
@@ -659,6 +737,7 @@ impl App {
             (true, false, false, Key::S) => Save,
             (true, true, false, Key::S) => SaveAs,
             (true, false, true, Key::S) => SaveAll,
+            (true, false, true, Key::E) => Export,
             (true, false, false, Key::W) => Close,
             (true, false, false, Key::F4) => Close,
             (true, false, false, Key::Q) => Exit,
@@ -693,6 +772,7 @@ impl App {
             (true, true, false, Key::B) => ZoomSelection,
             (true, false, false, Key::Num0) => ActualSize,
             (true, false, false, Key::Quote) => ToggleGrid,
+            (true, _, false, Key::Semicolon) => ToggleSnap,
             (true, true, false, Key::X) => Crop,
             (true, false, false, Key::R) => Resize,
             (true, true, false, Key::R) => CanvasSize,

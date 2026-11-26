@@ -25,6 +25,11 @@ pub enum Tool {
     Shapes,
 }
 
+/// Tools whose points snap to the grid when Snap to Grid is on (freehand tools don't).
+pub fn snaps(t: Tool) -> bool {
+    matches!(t, Tool::RectSelect | Tool::EllipseSelect | Tool::MovePixels | Tool::MoveSelection | Tool::Gradient | Tool::Text | Tool::LineCurve | Tool::Shapes)
+}
+
 impl Tool {
     /// Order shown in the Tools window (two columns).
     pub const ALL: [Tool; 19] = [

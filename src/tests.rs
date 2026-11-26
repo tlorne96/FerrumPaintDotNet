@@ -417,3 +417,37 @@ fn flat_save_of_layered_image_warns_and_keeps_layers() {
     assert_eq!(back.layers.len(), 2);
     let _ = std::fs::remove_dir_all(&dir);
 }
+#[test]
+fn snap_to_grid_aligns_shape_corners() {
+    let mut a = app(200, 200);
+    a.set_tool(Tool::Shapes);
+    a.ts.from_center = false;
+    a.snap = true;
+    a.grid_size = 10;
+    drag(&mut a, pos2(23.0, 18.0), pos2(64.0, 47.0), Modifiers::NONE);
+    assert_eq!(shape_rect(&a), (pos2(20.0, 20.0), pos2(60.0, 50.0)));
+    // freehand tools are not snapped
+    a.set_tool(Tool::Paintbrush);
+    assert_eq!(a.snap_pt(pos2(23.0, 18.0)), pos2(23.0, 18.0));
+    a.snap = false;
+    a.set_tool(Tool::Shapes);
+    assert_eq!(a.snap_pt(pos2(23.0, 18.0)), pos2(23.0, 18.0));
+}
+
+#[test]
+fn export_writes_flat_copy_and_keeps_document() {
+    let mut a = app(40, 30);
+    a.docs[0].add_layer();
+    let dir = std::env::temp_dir().join("ferrum_export_test");
+    let _ = std::fs::create_dir_all(&dir);
+    let png = dir.join("out.png");
+    let jpg = dir.join("out.jpg");
+    assert!(a.write_export(0, png.clone(), 95));
+    assert!(a.write_export(0, jpg.clone(), 60));
+    assert_eq!(image::image_dimensions(&png).unwrap(), (40, 30));
+    assert_eq!(image::image_dimensions(&jpg).unwrap(), (40, 30));
+    let d = &a.docs[0];
+    assert_eq!(d.layers.len(), 2, "export must not flatten the open document");
+    assert!(d.path.is_none(), "export must not change the document's file");
+    assert_eq!(a.export_paths.get(&d.uid), Some(&jpg));
+}
