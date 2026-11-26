@@ -1,0 +1,96 @@
+name: Ubuntu .deb test
+
+# Builds the .deb and installs it in clean Ubuntu containers, then checks that it
+# installs, runs, converts files (including .pdn) and opens its window under Xvfb.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libxkbcommon-dev libgl1-mesa-dev \
+            libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+      - name: Build .deb
+        run: |
+          cargo install cargo-deb --locked
+          cargo deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: target/debian/*.deb
+
+  install-test:
+    needs: build-deb
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:26.04", "ubuntu:24.04"]
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+      - name: Install the .deb with apt (pulls in its dependencies)
+        run: |
+          . /etc/os-release && echo "Testing on $PRETTY_NAME"
+          apt-get update
+          apt-get install -y ./ferrum-paint_*.deb
+          dpkg -s ferrum-paint | head -n 12
+      - name: Check installed files and libraries
+        run: |
+          set -e
+          test -x /usr/bin/ferrum-paint
+          test -f /usr/share/applications/ferrum-paint.desktop
+          test -f /usr/share/mime/packages/ferrum-paint.xml
+          ls /usr/share/icons/hicolor/*/apps/ferrum-paint.png
+          if ldd /usr/bin/ferrum-paint | grep "not found"; then echo "missing libraries"; exit 1; fi
+          # libraries winit/glutin open at run time must come from the .deb dependencies
+          for l in libGL.so.1 libEGL.so.1 libX11.so.6 libX11-xcb.so.1 libXcursor.so.1 libXrandr.so.2 libXi.so.6 libxkbcommon.so.0 libxkbcommon-x11.so.0 libwayland-client.so.0 libwayland-cursor.so.0 libwayland-egl.so.1; do
+            ldconfig -p | grep -q "$l" || { echo "missing runtime library $l"; exit 1; }
+          done
+          echo "all runtime libraries present"
+      - name: Headless file conversion (PNG -> .pdn -> .ferrum -> PNG)
+        run: |
+          set -e
+          ferrum-paint --write-icon /tmp/icon.png 128
+          ferrum-paint --convert /tmp/icon.png /tmp/icon.pdn
+          ferrum-paint --convert /tmp/icon.pdn /tmp/icon.ferrum
+          ferrum-paint --convert /tmp/icon.ferrum /tmp/back.png
+          cmp /tmp/icon.png /tmp/back.png && echo "round trip identical"
+      - name: Launch the app under Xvfb with software OpenGL
+        run: |
+          set -e
+          DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb x11-utils libgl1-mesa-dri libegl1 imagemagick desktop-file-utils
+          desktop-file-validate /usr/share/applications/ferrum-paint.desktop || true
+          Xvfb :99 -screen 0 1600x1000x24 &
+          sleep 2
+          export DISPLAY=:99 LIBGL_ALWAYS_SOFTWARE=1 XDG_RUNTIME_DIR=/tmp
+          ferrum-paint /tmp/icon.pdn > /tmp/app.log 2>&1 &
+          PID=$!
+          sleep 12
+          if ! kill -0 $PID; then echo "app exited early:"; cat /tmp/app.log; exit 1; fi
+          xwininfo -root -tree | grep -i "ferrum" | tee /tmp/windows.txt
+          test -s /tmp/windows.txt
+          import -window root /tmp/screen-${{ strategy.job-index }}.png
+          kill $PID
+          . /etc/os-release
+          {
+            echo "### $PRETTY_NAME"
+            echo "- .deb installed with apt, no missing libraries"
+            echo "- PNG -> .pdn -> .ferrum -> PNG round trip identical"
+            echo "- App window opened under Xvfb: \`$(head -n1 /tmp/windows.txt | sed 's/^ *//')\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshot-${{ strategy.job-index }}
+          path: /tmp/screen-*.png

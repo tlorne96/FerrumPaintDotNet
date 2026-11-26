@@ -24,7 +24,7 @@ To uninstall: `sudo apt remove ferrum-paint`.
 
 ## Opening your Paint.NET files
 
-**File → Open** (Ctrl+O) opens `.pdn` files saved by Paint.NET 3.x to 5.x, with all layers, names, visibility, opacity and blend modes kept. Paint.NET's own files are never modified. **Save** (Ctrl+S) asks where to save a layered `.ferrum` copy, and you carry on from that file. **File → Export** gives you a flat PNG or JPEG.
+**File → Open** (Ctrl+O) opens `.pdn` files saved by Paint.NET 3.x to 5.x, with all layers, names, visibility, opacity and blend modes kept. **Save** (Ctrl+S) writes it back as a `.pdn` that Paint.NET opens, so you can move between the two programs. **Save As** also offers `.ferrum` and flat formats, and **File → Export** gives you a flat PNG or JPEG.
 
 ## Building from source
 

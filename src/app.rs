@@ -253,7 +253,7 @@ impl App {
                 let files = rfd::FileDialog::new()
                     .add_filter("All images", &["ferrum", "pdn", "png", "jpg", "jpeg", "bmp", "gif", "tga", "tif", "tiff", "webp", "ico"])
                     .add_filter("Ferrum Paint image", &["ferrum"])
-                    .add_filter("Paint.NET image (import)", &["pdn"])
+                    .add_filter("Paint.NET image", &["pdn"])
                     .add_filter("All files", &["*"])
                     .pick_files();
                 for f in files.unwrap_or_default() {
@@ -565,20 +565,23 @@ impl App {
     /// (the open document always keeps its layers). Returns true once the file is written.
     pub fn save_ext(&mut self, idx: usize, save_as: bool, close_after: bool) -> bool {
         let path = match (&self.docs[idx].path, save_as) {
-            // imported .pdn files are never written back: Save asks for a .ferrum name
-            (Some(p), false) if file_ext(p) != "pdn" => Some(p.clone()),
+            (Some(p), false) => Some(p.clone()),
             _ => {
                 let doc = &self.docs[idx];
                 let stem = doc.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or(doc.name.clone());
                 let stem = stem.strip_suffix(".ferrum").map(str::to_string).unwrap_or(stem);
                 // like .pdn: new images default to the layered native format; opened files keep their type
-                let ext = doc.path.as_ref().map(|p| file_ext(p)).filter(|e| !e.is_empty() && e != "pdn").unwrap_or_else(|| "ferrum".into());
+                let ext = doc.path.as_ref().map(|p| file_ext(p)).filter(|e| !e.is_empty()).unwrap_or_else(|| "ferrum".into());
                 let mut fd = rfd::FileDialog::new().set_file_name(format!("{stem}.{ext}"));
                 if let Some(dir) = doc.path.as_ref().and_then(|p| p.parent()) {
                     fd = fd.set_directory(dir);
                 }
-                fd.add_filter("Ferrum Paint image, keeps layers (*.ferrum)", &["ferrum"])
-                    .add_filter("PNG", &["png"])
+                // the current file's type is listed first so the dialog keeps it selected
+                let layered = [("Ferrum Paint image, keeps layers (*.ferrum)", "ferrum"), ("Paint.NET image, keeps layers (*.pdn)", "pdn")];
+                for (label, e) in layered.iter().filter(|(_, e)| *e == ext).chain(layered.iter().filter(|(_, e)| *e != ext)) {
+                    fd = fd.add_filter(*label, &[*e]);
+                }
+                fd.add_filter("PNG", &["png"])
                     .add_filter("JPEG", &["jpg", "jpeg"])
                     .add_filter("BMP", &["bmp"])
                     .add_filter("TGA", &["tga"])
@@ -588,7 +591,7 @@ impl App {
             }
         };
         let Some(path) = path else { return false };
-        if file_ext(&path) != "ferrum" && self.docs[idx].layers.len() > 1 {
+        if !matches!(file_ext(&path).as_str(), "ferrum" | "pdn") && self.docs[idx].layers.len() > 1 {
             self.dialog = Some(Dialog::FlattenSave { uid: self.docs[idx].uid, path, close_after });
             return false;
         }
@@ -654,12 +657,19 @@ impl App {
 
     /// Write the document to `path` (format from the extension) and mark it saved.
     pub fn write_file(&mut self, idx: usize, path: std::path::PathBuf) -> bool {
+        let is_pdn = file_ext(&path) == "pdn";
         match fileio::save(&self.docs[idx], &path) {
             Ok(()) => {
                 let doc = &mut self.docs[idx];
                 doc.name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
                 doc.path = Some(path);
                 doc.mark_saved();
+                if is_pdn {
+                    let lost = crate::pdn::unsupported_blends(&self.docs[idx]);
+                    if !lost.is_empty() {
+                        self.msg(format!("Saved. Paint.NET doesn't have these blend modes, so these layers use Normal in the .pdn file:\n{}", lost.join("\n")));
+                    }
+                }
                 true
             }
             Err(e) => {

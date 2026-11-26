@@ -27,7 +27,7 @@ Ferrum Paint is an independent clean-room implementation. Its behaviour is based
   - There are 14 shape types: rectangle, rounded rectangle, ellipse, triangle, right triangle, diamond, pentagon, hexagon, octagon, star, arrow, heart, cross and speech bubble. Press A or Shift+A to cycle through them.
   - Draw modes are outline, filled, or filled with an outline. The primary colour draws the outline and the secondary colour fills.
   - A shape stays editable after you draw it. Drag inside it to move it or drag a handle to resize it, then press Enter (or switch tool) to finish.
-- **Layers**: add, delete, duplicate, merge down, move up or down, visibility, and properties (name, opacity, and 21 blend modes, including Paint.NET's Reflect, Glow, Negation and Xor). A full undo/redo history is kept in the History window.
+- **Layers**: add, delete, duplicate, merge down, move up or down, visibility, and properties (name, opacity, and 21 blend modes, including Paint.NET's Reflect, Glow, Negation and bitwise Xor). A full undo/redo history is kept in the History window.
 - **Image menu**: crop to selection, resize (with resampling choice), canvas size (with anchor), flip, rotate 90°/180°, flatten, and Rotate/Zoom layer.
 - **Adjustments** (13): Auto-Level, Black and White, Brightness/Contrast, Curves, Exposure, Highlights/Shadows, Hue/Saturation, Invert Alpha, Invert Colors, Levels, Posterize, Sepia (with intensity), and Temperature and Tint.
 - **Effects** (47, in the same submenus as Paint.NET):
@@ -50,7 +50,8 @@ Ferrum Paint is an independent clean-room implementation. Its behaviour is based
   - New images save as `.ferrum` by default. If you save a layered image as PNG, JPEG or another flat format, Ferrum Paint asks first and offers **Save as .ferrum instead**. Flattening only affects the exported file; the open image keeps its layers.
   - File association: `install-linux.sh` registers the `application/x-ferrum-paint` MIME type on Ubuntu. On Windows, run `ferrum-paint.exe --register-file-type` once to make `.ferrum` files open in Ferrum Paint (current user only). The Windows installer and the .deb do this for you.
   - **File → Export...** (Ctrl+Alt+E) writes a flattened PNG, JPEG (with a quality slider), BMP, TGA, TIFF or WebP copy. The open image keeps its layers, its file name and its saved state, so Ctrl+S still saves the layered `.ferrum`. The next export starts with the same file name and folder.
-  - **Opens Paint.NET `.pdn` files** (import only), with every layer, name, visibility, opacity and blend mode intact. Files from Paint.NET 3.x to 5.x are supported. Ctrl+S on an imported `.pdn` asks where to save a `.ferrum` copy; the original `.pdn` is never overwritten. The reader was written from public documents only (Microsoft's MS-NRBF spec and the MIT-licensed pypdn project), not from Paint.NET's code. The new format planned for Paint.NET 6.0 is not supported yet.
+  - **Opens and saves Paint.NET `.pdn` files**, with every layer, name, visibility, opacity and blend mode intact. Files from Paint.NET 3.x to 5.x open; saved files are written in the Paint.NET 5.2 layout and have been checked by opening them in Paint.NET 5.2. Open a `.pdn`, edit it and Ctrl+S saves it back as `.pdn`. Each save is read back and verified before it replaces the file. Layers using a blend mode Paint.NET lacks (Hard Light, Soft Light, Exclusion, Hue, Saturation, Color, Luminosity) are saved as Normal, and Ferrum Paint tells you which. The reader follows public documents (Microsoft's MS-NRBF spec and the MIT-licensed pypdn project); the writer copies the record layout seen in .pdn files' data. No Paint.NET code was used. The new format planned for Paint.NET 6.0 is not supported yet.
+  - **Command line:** `ferrum-paint --convert in.pdn out.png` converts between any supported formats (`.ferrum` and `.pdn` keep layers).
   - Import and export: PNG, JPEG, BMP, GIF, TIFF, WebP, TGA and ICO. JPEG is composited over white; ICO is limited to 256×256.
   - Files can be opened from the command line or by drag-and-drop.
   - Saves are atomic: the file is written to a temporary file and then renamed.
@@ -163,14 +164,14 @@ ferrum-paint --write-icon icon.png 256
 | `src/paint.rs` | Shape, line, brush, text and gradient rasterisation (tiny-skia) |
 | `src/dialogs.rs` | Modal dialogs and the shortcut table |
 | `src/fileio.rs` | `.ferrum` format and image import/export |
-| `src/pdn.rs` | Paint.NET `.pdn` import (NRBF reader and layer decoder) |
+| `src/pdn.rs` | Paint.NET `.pdn` import and export (NRBF reader/writer, layer pixel blocks) |
 | `packaging/` | Windows installer (Inno Setup), `.deb` assets, icons, desktop entry, script installers |
 | `src/icons.rs` | Procedurally drawn original icons |
 | `vendor/egui-winit` | egui-winit 0.31.1, patched so that pasting image-only clipboard contents (Ctrl+V) works |
 
 ## Known limitations
 
-- There is no printing and no plugin system. Paint.NET `.pdn` files can be opened but not saved. Paint.NET 6.0's new format isn't supported yet.
+- There is no printing and no plugin system. Paint.NET 6.0's new `.pdn` format isn't supported yet, and saved `.pdn` files carry no EXIF metadata.
 - The installers are not code-signed, so Windows SmartScreen will warn the first time you run `Setup.exe`.
 - Effects follow Paint.NET's names, menus and controls, but the algorithms are original, so results will not be pixel-identical. Mosaic offers 7 tile shapes rather than Paint.NET's 21. Fractal colouring uses our own palette.
 - Effect previews of heavy effects on very large images take a second or two to appear.

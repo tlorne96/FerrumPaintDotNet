@@ -75,3 +75,8 @@ and the user-visible descriptions of each control were used; all algorithms are 
   - Reflect = min(A^2/(1-B),1); Glow = min(B^2/(1-A),1); Negation = 1-|1-A-B| (A = below, B = layer), composited as (a-ab)A + (b-ab)B + ab*F.
 - Paint.NET roadmap: Paint.NET 6.0 (planned 2027) moves to a new, publicly documented .pdn format: https://paint.net/roadmap.html
 - No Paint.NET source (including the old OpenPDN tree) was consulted.
+### .pdn export
+
+- With the user's approval, the writer reproduces the record layout, class names, field names and assembly names observed in the *data* of .pdn files saved by Paint.NET 5.2 (dumped with Ferrum Paint's own reader). No Paint.NET code or binaries were examined.
+- Output is verified by reading it back with the importer and by opening it in Paint.NET 5.2 (layers, blend modes, 7017×4959 drawings).
+- Xor is a bitwise XOR of 8-bit colour values; this was confirmed by comparing Paint.NET's rendering of an exported test file, not by reading its code.

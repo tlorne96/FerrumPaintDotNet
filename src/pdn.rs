@@ -1,11 +1,13 @@
-//! Import of Paint.NET `.pdn` images (the "PDN3" container used by Paint.NET 3.x to 5.x).
+//! Import and export of Paint.NET `.pdn` images (the "PDN3" container used by Paint.NET 3.x to 5.x).
 //!
 //! Clean-room note: this reader was written only from public documentation:
 //! - Microsoft's open specification [MS-NRBF] ".NET Remoting: Binary Format Data Structure"
 //!   (https://learn.microsoft.com/openspecs/windows_protocols/ms-nrbf), and
 //! - the MIT-licensed pypdn project's description of the PDN layout
 //!   (https://github.com/addisonElliott/pypdn).
-//! No Paint.NET code was read, decompiled or copied. Import only; Ferrum Paint never writes .pdn.
+//! No Paint.NET code was read, decompiled or copied. The writer emits the same record layout,
+//! class names and field names that appear in .pdn files saved by Paint.NET 5.2 (observed by
+//! reading those files' data with the reader below), and is checked by opening its output in Paint.NET.
 //!
 //! Layout: `"PDN3"`, a 24-bit little-endian header length, a UTF-8 XML header (size and
 //! thumbnail), the bytes `00 01`, an NRBF object graph describing the document and its layers,
@@ -64,6 +66,7 @@ struct Nrbf<'a> {
     metas: HashMap<i32, Meta>,
     root: i32,
     depth: u32,
+    trace: Option<Vec<String>>,
 }
 
 type R<T> = Result<T, String>;
@@ -73,6 +76,12 @@ fn bad<T>(what: &str) -> R<T> {
 }
 
 impl<'a> Nrbf<'a> {
+    fn log(&mut self, s: String) {
+        let d = self.depth as usize;
+        if let Some(t) = &mut self.trace {
+            t.push(format!("{}{s}", "  ".repeat(d)));
+        }
+    }
     fn need(&self, n: usize) -> R<()> {
         if self.pos + n > self.b.len() {
             return bad("unexpected end of file");
@@ -167,26 +176,29 @@ impl<'a> Nrbf<'a> {
         let bts: Vec<u8> = self.bytes(n)?.to_vec();
         let mut out = Vec::with_capacity(n);
         for bt in bts {
-            let extra = self.additional_info(bt)?;
+            let (extra, desc) = self.additional_info(bt)?;
+            if self.trace.is_some() {
+                self.log(format!("  type bt={bt} {desc}"));
+            }
             out.push((bt, extra));
         }
         Ok(out)
     }
 
     /// Read the AdditionalInfo for a BinaryTypeEnum; returns the primitive type (or 0).
-    fn additional_info(&mut self, bt: u8) -> R<u8> {
+    fn additional_info(&mut self, bt: u8) -> R<(u8, String)> {
         Ok(match bt {
-            0 | 7 => self.u8()?,
-            3 => {
-                self.lps()?;
-                0
+            0 | 7 => {
+                let p = self.u8()?;
+                (p, format!("prim={p}"))
             }
+            3 => (0, format!("system={}", self.lps()?)),
             4 => {
-                self.lps()?;
-                self.i32()?;
-                0
+                let n = self.lps()?;
+                let lib = self.i32()?;
+                (0, format!("class={n} lib={lib}"))
             }
-            1 | 2 | 5 | 6 => 0,
+            1 | 2 | 5 | 6 => (0, String::new()),
             _ => return bad("unknown member type"),
         })
     }
@@ -206,6 +218,10 @@ impl<'a> Nrbf<'a> {
                     Item::End => return bad("early end"),
                 },
             };
+            if self.trace.is_some() {
+                let s = format!("{name} = {v:?}");
+                self.log(s);
+            }
             members.push((name.clone(), v));
         }
         self.depth -= 1;
@@ -249,38 +265,41 @@ impl<'a> Nrbf<'a> {
             return Ok(match tag {
                 0 => {
                     self.root = self.i32()?;
-                    self.bytes(12)?;
+                    let hb = self.bytes(12)?;
+                    self.log(format!("[0 Header] root={} rest={hb:?}", self.root));
                     continue;
                 }
                 12 => {
-                    self.i32()?;
-                    self.lps()?;
+                    let id = self.i32()?;
+                    let n = self.lps()?;
+                    self.log(format!("[12 Library] id={id} {n}"));
                     continue;
                 }
                 1 => {
                     let id = self.i32()?;
                     let mid = self.i32()?;
                     let Some(meta) = self.metas.get(&mid).cloned() else { return bad("missing class metadata") };
+                    self.log(format!("[1 ClassWithId] id={id} meta={mid} {}", meta.class));
                     Item::V(self.class_body(id, meta)?)
                 }
                 2 | 3 => {
                     let (id, class, names) = self.class_info()?;
-                    if tag == 3 {
-                        self.i32()?;
-                    }
+                    let lib = if tag == 3 { self.i32()? } else { -1 };
+                    self.log(format!("[{tag}] id={id} {class} lib={lib} {names:?}"));
                     Item::V(self.class_body(id, Meta { class, names, types: None })?)
                 }
                 4 | 5 => {
                     let (id, class, names) = self.class_info()?;
+                    self.log(format!("[{tag}] id={id} {class} {names:?}"));
                     let types = self.member_types(names.len())?;
-                    if tag == 5 {
-                        self.i32()?;
-                    }
+                    let lib = if tag == 5 { self.i32()? } else { -1 };
+                    self.log(format!("  lib={lib}"));
                     Item::V(self.class_body(id, Meta { class, names, types: Some(types) })?)
                 }
                 6 => {
                     let id = self.i32()?;
                     let s = self.lps()?;
+                    self.log(format!("[6 String] id={id} {s:?}"));
                     self.objs.insert(id, Entry::Str(s.clone()));
                     Item::V(V::Str(s))
                 }
@@ -298,7 +317,8 @@ impl<'a> Nrbf<'a> {
                         }
                     }
                     let bt = self.u8()?;
-                    let p = self.additional_info(bt)?;
+                    let (p, desc) = self.additional_info(bt)?;
+                    self.log(format!("[7 BinaryArray] id={id} kind={kind} rank={rank} total={total} bt={bt} {desc}"));
                     if bt == 0 {
                         Item::V(self.prim_array(id, total, p)?)
                     } else {
@@ -313,18 +333,23 @@ impl<'a> Nrbf<'a> {
                 }
                 9 => Item::V(V::Ref(self.i32()?)),
                 10 => Item::V(V::Null),
-                11 => Item::End,
+                11 => {
+                    self.log("[11 MessageEnd]".into());
+                    Item::End
+                }
                 13 => Item::Nulls(self.u8()? as usize),
                 14 => Item::Nulls(self.count()?),
                 15 => {
                     let id = self.i32()?;
                     let n = self.count()?;
                     let t = self.u8()?;
+                    self.log(format!("[15 ArraySinglePrimitive] id={id} n={n} prim={t}"));
                     Item::V(self.prim_array(id, n, t)?)
                 }
                 16 | 17 => {
                     let id = self.i32()?;
                     let n = self.count()?;
+                    self.log(format!("[{tag} Array] id={id} n={n}"));
                     let v = self.elements(n)?;
                     self.objs.insert(id, Entry::Arr(v));
                     Item::V(V::Ref(id))
@@ -446,7 +471,7 @@ pub fn load(bytes: &[u8], doc_name: String) -> Result<Document, String> {
     if bytes.len() < start + 2 || bytes[start] != 0 || bytes[start + 1] != 1 {
         return bad("bad header");
     }
-    let mut nr = Nrbf { b: bytes, pos: start + 2, objs: HashMap::new(), metas: HashMap::new(), root: 1, depth: 0 };
+    let mut nr = Nrbf { b: bytes, pos: start + 2, objs: HashMap::new(), metas: HashMap::new(), root: 1, depth: 0, trace: None };
     loop {
         match nr.record()? {
             Item::End => break,
@@ -595,4 +620,424 @@ fn read_block(b: &[u8], mut pos: usize, dst: &mut [u8]) -> Result<usize, String>
         pos += size;
     }
     Ok(pos)
+}
+
+/// Debug helper: a record-by-record listing of a .pdn file's header and object graph.
+#[cfg(test)]
+pub fn dump(bytes: &[u8]) -> String {
+    let hlen = bytes[4] as usize | (bytes[5] as usize) << 8 | (bytes[6] as usize) << 16;
+    let header = String::from_utf8_lossy(&bytes[7..7 + hlen]);
+    let header: String = header.chars().take(600).collect();
+    let mut nr = Nrbf { b: bytes, pos: 7 + hlen + 2, objs: HashMap::new(), metas: HashMap::new(), root: 1, depth: 0, trace: Some(vec![]) };
+    let mut err = String::new();
+    loop {
+        match nr.record() {
+            Ok(Item::End) => break,
+            Ok(_) => {}
+            Err(e) => {
+                err = e;
+                break;
+            }
+        }
+    }
+    let after = &bytes[nr.pos..(nr.pos + 32).min(bytes.len())];
+    format!("XML: {header}\n{}\n{err}\nend at {} of {}; next bytes {after:?}\n", nr.trace.unwrap().join("\n"), nr.pos, bytes.len())
+}
+// ===================================================================== export
+
+/// Assembly version written into the file (Paint.NET 5.2, which opens older-version files too).
+const PDN_VERSION: &str = "5.200.9810.35277";
+const KVP: &str = "System.Collections.Generic.KeyValuePair`2[[System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089],[System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]";
+const CHUNK: usize = 256 * 1024;
+
+/// Paint.NET's blend-mode index and blend-op class for a layer blend, if Paint.NET has it.
+fn blend_to_pdn(b: LayerBlend) -> Option<(i32, &'static str)> {
+    Some(match b {
+        LayerBlend::Normal => (0, "Normal"),
+        LayerBlend::Multiply => (1, "Multiply"),
+        LayerBlend::Additive => (2, "Additive"),
+        LayerBlend::ColorBurn => (3, "ColorBurn"),
+        LayerBlend::ColorDodge => (4, "ColorDodge"),
+        LayerBlend::Reflect => (5, "Reflect"),
+        LayerBlend::Glow => (6, "Glow"),
+        LayerBlend::Overlay => (7, "Overlay"),
+        LayerBlend::Difference => (8, "Difference"),
+        LayerBlend::Negation => (9, "Negation"),
+        LayerBlend::Lighten => (10, "Lighten"),
+        LayerBlend::Darken => (11, "Darken"),
+        LayerBlend::Screen => (12, "Screen"),
+        LayerBlend::Xor => (13, "Xor"),
+        _ => return None,
+    })
+}
+
+/// Names of layers whose blend mode Paint.NET doesn't have (they are saved as Normal).
+pub fn unsupported_blends(doc: &Document) -> Vec<String> {
+    doc.layers.iter().filter(|l| blend_to_pdn(l.blend).is_none()).map(|l| format!("{} ({})", l.name, l.blend.name())).collect()
+}
+
+/// Member type info for class metadata.
+enum T<'s> {
+    Prim(u8),
+    Str,
+    Sys(&'s str),
+    Class(&'s str, i32),
+    ObjArr,
+}
+
+struct W {
+    out: Vec<u8>,
+    metas: HashMap<String, i32>,
+}
+
+impl W {
+    fn u8(&mut self, v: u8) {
+        self.out.push(v);
+    }
+    fn i32(&mut self, v: i32) {
+        self.out.extend_from_slice(&v.to_le_bytes());
+    }
+    fn lps(&mut self, s: &str) {
+        let mut n = s.len();
+        loop {
+            let b = (n & 0x7f) as u8;
+            n >>= 7;
+            if n == 0 {
+                self.u8(b);
+                break;
+            }
+            self.u8(b | 0x80);
+        }
+        self.out.extend_from_slice(s.as_bytes());
+    }
+    fn reference(&mut self, id: i32) {
+        self.u8(9);
+        self.i32(id);
+    }
+    fn string(&mut self, id: i32, s: &str) {
+        self.u8(6);
+        self.i32(id);
+        self.lps(s);
+    }
+    /// Start an object: full metadata the first time a class shape is seen, ClassWithId after.
+    /// The caller then writes the member values in order.
+    fn class(&mut self, id: i32, name: &str, lib: Option<i32>, members: &[(&str, T)]) {
+        let mut key = name.to_string();
+        for (_, t) in members {
+            if let T::Class(c, _) = t {
+                key.push('|');
+                key.push_str(c);
+            }
+        }
+        if let Some(&meta) = self.metas.get(&key) {
+            self.u8(1);
+            self.i32(id);
+            self.i32(meta);
+            return;
+        }
+        self.metas.insert(key, id);
+        self.u8(if lib.is_some() { 5 } else { 4 });
+        self.i32(id);
+        self.lps(name);
+        self.i32(members.len() as i32);
+        for (n, _) in members {
+            self.lps(n);
+        }
+        for (_, t) in members {
+            self.u8(match t {
+                T::Prim(_) => 0,
+                T::Str => 1,
+                T::Sys(_) => 3,
+                T::Class(..) => 4,
+                T::ObjArr => 5,
+            });
+        }
+        for (_, t) in members {
+            match t {
+                T::Prim(p) => self.u8(*p),
+                T::Sys(s) => self.lps(s),
+                T::Class(c, l) => {
+                    self.lps(c);
+                    self.i32(*l);
+                }
+                _ => {}
+            }
+        }
+        if let Some(l) = lib {
+            self.i32(l);
+        }
+    }
+    /// Empty `KeyValuePair<string,string>[]` (user metadata).
+    fn empty_kvp_array(&mut self, id: i32) {
+        self.u8(7);
+        self.i32(id);
+        self.u8(0); // single-dimensional
+        self.i32(1); // rank
+        self.i32(0); // length
+        self.u8(3); // SystemClass element type
+        self.lps(KVP);
+    }
+}
+
+fn unpremul(c: u8, a: u8) -> u8 {
+    if a == 0 {
+        0
+    } else {
+        ((c as u32 * 255 + a as u32 / 2) / a as u32).min(255) as u8
+    }
+}
+
+fn base64(data: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut s = String::with_capacity(data.len().div_ceil(3) * 4);
+    for c in data.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            if i <= c.len() {
+                s.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                s.push('=');
+            }
+        }
+    }
+    s
+}
+
+/// PNG thumbnail (max 256 px), as shown by Explorer and Paint.NET's open dialog.
+fn thumbnail(doc: &Document) -> String {
+    let flat = doc.composite();
+    let (w, h) = (flat.width(), flat.height());
+    let mut img = image::RgbaImage::new(w, h);
+    for (d, s) in img.as_mut().chunks_exact_mut(4).zip(flat.data().chunks_exact(4)) {
+        d.copy_from_slice(&[unpremul(s[0], s[3]), unpremul(s[1], s[3]), unpremul(s[2], s[3]), s[3]]);
+    }
+    let scale = (256.0 / w.max(h) as f32).min(1.0);
+    let (tw, th) = (((w as f32 * scale).round() as u32).max(1), ((h as f32 * scale).round() as u32).max(1));
+    let small = image::imageops::thumbnail(&img, tw, th);
+    let mut png = Vec::new();
+    if small.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).is_err() {
+        return String::new();
+    }
+    base64(&png)
+}
+
+/// One layer's pixels as gzip chunks, compressed on all cores.
+fn pixel_block(layer: &Layer, out: &mut Vec<u8>) {
+    use std::io::Write;
+    let src = layer.pixmap.data();
+    let mut bgra = vec![0u8; src.len()];
+    for (d, s) in bgra.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+        let a = s[3];
+        d.copy_from_slice(&[unpremul(s[2], a), unpremul(s[1], a), unpremul(s[0], a), a]);
+    }
+    let chunks: Vec<&[u8]> = bgra.chunks(CHUNK).collect();
+    let mut packed: Vec<Vec<u8>> = vec![Vec::new(); chunks.len()];
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(chunks.len().max(1));
+    let results = std::sync::Mutex::new(&mut packed);
+    std::thread::scope(|sc| {
+        for _ in 0..threads {
+            sc.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if i >= chunks.len() {
+                    break;
+                }
+                let mut e = flate2::write::GzEncoder::new(Vec::with_capacity(chunks[i].len() / 8), flate2::Compression::new(5));
+                e.write_all(chunks[i]).unwrap();
+                let z = e.finish().unwrap();
+                results.lock().unwrap()[i] = z;
+            });
+        }
+    });
+    out.push(0); // gzip
+    out.extend_from_slice(&(CHUNK as u32).to_be_bytes());
+    for (i, z) in packed.iter().enumerate() {
+        out.extend_from_slice(&(i as u32).to_be_bytes());
+        out.extend_from_slice(&(z.len() as u32).to_be_bytes());
+        out.extend_from_slice(z);
+    }
+}
+
+/// Write a layered document as a Paint.NET .pdn file. The result is read back and checked
+/// before it is returned.
+pub fn save(doc: &Document) -> Result<Vec<u8>, String> {
+    let (w, h) = (doc.width as i32, doc.height as i32);
+    let n = doc.layers.len();
+    if n == 0 {
+        return Err("Nothing to save.".into());
+    }
+    let data_lib = format!("PaintDotNet.Data, Version={PDN_VERSION}, Culture=neutral, PublicKeyToken=null");
+    let core_lib = format!("PaintDotNet.Core, Version={PDN_VERSION}, Culture=neutral, PublicKeyToken=null");
+    let kvp_arr = format!("{KVP}[]");
+
+    // ids: 1 document, 2 Data library, 3 Core library, then allocated in order
+    let mut next = 4;
+    let mut id = || {
+        next += 1;
+        next - 1
+    };
+    let (list_id, ver_id, meta_id, items_id, empty_id) = (id(), id(), id(), id(), id());
+    struct Ids {
+        layer: i32,
+        bprops: i32,
+        surface: i32,
+        props: i32,
+        name: i32,
+        op: i32,
+        mem: i32,
+    }
+    let ids: Vec<Ids> = (0..n).map(|_| Ids { layer: id(), bprops: id(), surface: id(), props: id(), name: id(), op: id(), mem: id() }).collect();
+
+    let mut wr = W { out: Vec::with_capacity(4096 + n * 512), metas: HashMap::new() };
+    wr.u8(0); // header: root 1, header id -1, version 1.0
+    wr.i32(1);
+    wr.i32(-1);
+    wr.i32(1);
+    wr.i32(0);
+    for (lid, name) in [(2, &data_lib), (3, &core_lib)] {
+        wr.u8(12);
+        wr.i32(lid);
+        wr.lps(name);
+    }
+    wr.class(
+        1,
+        "PaintDotNet.Document",
+        Some(2),
+        &[("isDisposed", T::Prim(1)), ("layers", T::Class("PaintDotNet.LayerList", 2)), ("width", T::Prim(8)), ("height", T::Prim(8)), ("savedWith", T::Sys("System.Version")), ("userMetadataItems", T::Sys(&kvp_arr))],
+    );
+    wr.u8(0);
+    wr.reference(list_id);
+    wr.i32(w);
+    wr.i32(h);
+    wr.reference(ver_id);
+    wr.reference(meta_id);
+
+    wr.class(
+        list_id,
+        "PaintDotNet.LayerList",
+        Some(2),
+        &[("parent", T::Class("PaintDotNet.Document", 2)), ("ArrayList+_items", T::ObjArr), ("ArrayList+_size", T::Prim(8)), ("ArrayList+_version", T::Prim(8))],
+    );
+    wr.reference(1);
+    wr.reference(items_id);
+    wr.i32(n as i32);
+    wr.i32(n as i32);
+
+    wr.class(ver_id, "System.Version", None, &[("_Major", T::Prim(8)), ("_Minor", T::Prim(8)), ("_Build", T::Prim(8)), ("_Revision", T::Prim(8))]);
+    for v in PDN_VERSION.split('.') {
+        wr.i32(v.parse().unwrap_or(0));
+    }
+    wr.empty_kvp_array(meta_id);
+
+    // ArrayList backing store: capacity 4, 8, 16, ... with trailing nulls
+    let cap = n.max(4).next_power_of_two();
+    wr.u8(16);
+    wr.i32(items_id);
+    wr.i32(cap as i32);
+    for l in &ids {
+        wr.reference(l.layer);
+    }
+    let nulls = cap - n;
+    if nulls == 1 {
+        wr.u8(10);
+    } else if nulls > 1 && nulls < 256 {
+        wr.u8(13);
+        wr.u8(nulls as u8);
+    } else if nulls >= 256 {
+        wr.u8(14);
+        wr.i32(nulls as i32);
+    }
+
+    for l in &ids {
+        wr.class(
+            l.layer,
+            "PaintDotNet.BitmapLayer",
+            Some(2),
+            &[
+                ("properties", T::Class("PaintDotNet.BitmapLayer+BitmapLayerProperties", 2)),
+                ("surface", T::Class("PaintDotNet.Surface", 3)),
+                ("Layer+isDisposed", T::Prim(1)),
+                ("Layer+width", T::Prim(8)),
+                ("Layer+height", T::Prim(8)),
+                ("Layer+properties", T::Class("PaintDotNet.Layer+LayerProperties", 2)),
+            ],
+        );
+        wr.reference(l.bprops);
+        wr.reference(l.surface);
+        wr.u8(0);
+        wr.i32(w);
+        wr.i32(h);
+        wr.reference(l.props);
+    }
+
+    let mut enum_id = -1_000_000;
+    for (layer, l) in doc.layers.iter().zip(&ids) {
+        let (mode, op) = blend_to_pdn(layer.blend).unwrap_or((0, "Normal"));
+        let op_class = format!("PaintDotNet.UserBlendOps+{op}BlendOp");
+        wr.class(l.bprops, "PaintDotNet.BitmapLayer+BitmapLayerProperties", Some(2), &[("blendOp", T::Class(&op_class, 2))]);
+        wr.reference(l.op);
+
+        wr.class(l.surface, "PaintDotNet.Surface", Some(3), &[("width", T::Prim(8)), ("height", T::Prim(8)), ("stride", T::Prim(8)), ("scan0", T::Class("PaintDotNet.MemoryBlock", 3))]);
+        wr.i32(w);
+        wr.i32(h);
+        wr.i32(w * 4);
+        wr.reference(l.mem);
+
+        wr.class(
+            l.props,
+            "PaintDotNet.Layer+LayerProperties",
+            Some(2),
+            &[
+                ("name", T::Str),
+                ("userMetadataItems", T::Sys(&kvp_arr)),
+                ("visible", T::Prim(1)),
+                ("isBackground", T::Prim(1)),
+                ("opacity", T::Prim(2)),
+                ("blendMode", T::Class("PaintDotNet.LayerBlendMode", 3)),
+            ],
+        );
+        wr.string(l.name, &layer.name);
+        wr.reference(empty_id);
+        wr.u8(layer.visible as u8);
+        wr.u8(0);
+        wr.u8(layer.opacity);
+        // the enum is a boxed value type, written inline
+        enum_id -= 1;
+        wr.class(enum_id, "PaintDotNet.LayerBlendMode", Some(3), &[("value__", T::Prim(8))]);
+        wr.i32(mode);
+    }
+    for (layer, l) in doc.layers.iter().zip(&ids) {
+        let (_, op) = blend_to_pdn(layer.blend).unwrap_or((0, "Normal"));
+        wr.class(l.op, &format!("PaintDotNet.UserBlendOps+{op}BlendOp"), Some(2), &[]);
+        wr.class(l.mem, "PaintDotNet.MemoryBlock", Some(3), &[("length64", T::Prim(9)), ("hasParent", T::Prim(1)), ("deferred", T::Prim(1))]);
+        wr.out.extend_from_slice(&(w as i64 * h as i64 * 4).to_le_bytes());
+        wr.u8(0);
+        wr.u8(1);
+    }
+    wr.empty_kvp_array(empty_id);
+    wr.u8(11); // MessageEnd
+
+    let xml = format!(
+        "<pdnImage width=\"{w}\" height=\"{h}\" layers=\"{n}\" savedWithVersion=\"{PDN_VERSION}\"><custom><thumb png=\"{}\" /></custom></pdnImage>",
+        thumbnail(doc)
+    );
+    if xml.len() >= 1 << 24 {
+        return Err("Thumbnail too large.".into());
+    }
+    let mut out = Vec::with_capacity(xml.len() + wr.out.len() + doc.layers.iter().map(|l| l.pixmap.data().len() / 4).sum::<usize>());
+    out.extend_from_slice(b"PDN3");
+    out.extend_from_slice(&(xml.len() as u32).to_le_bytes()[..3]);
+    out.extend_from_slice(xml.as_bytes());
+    out.extend_from_slice(&[0, 1]);
+    out.extend_from_slice(&wr.out);
+    for layer in &doc.layers {
+        pixel_block(layer, &mut out);
+    }
+
+    // read it back before anything touches the disk
+    let check = load(&out, doc.name.clone()).map_err(|e| format!("Internal error writing .pdn: {e}"))?;
+    if check.width != doc.width || check.height != doc.height || check.layers.len() != n {
+        return Err("Internal error writing .pdn (verification failed).".into());
+    }
+    Ok(out)
 }

@@ -14,7 +14,8 @@ name = "ferrum-paint"
 maintainer = "Tim Lorne"
 section = "graphics"
 priority = "optional"
-depends = "$auto, libgl1, libxkbcommon0, xdg-desktop-portal"
+# winit and glutin load the windowing libraries at run time (dlopen), so $auto misses them
+depends = "$auto, libgl1, libegl1, libxkbcommon0, libxkbcommon-x11-0, libx11-6, libx11-xcb1, libxcursor1, libxrandr2, libxi6, libwayland-client0, libwayland-cursor0, libwayland-egl1, xdg-desktop-portal"
 recommends = "xdg-desktop-portal-gtk"
 extended-description = """\
 Ferrum Paint is a layered raster image editor with a familiar Windows-paint-program workflow: \

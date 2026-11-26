@@ -144,6 +144,9 @@ pub fn save(doc: &Document, p: &Path) -> Result<(), String> {
     if ext(p) == "ferrum" {
         return save_native(doc, p);
     }
+    if ext(p) == "pdn" {
+        return write_atomic(p, &crate::pdn::save(doc)?);
+    }
     export_flat(doc, p, 95)
 }
 

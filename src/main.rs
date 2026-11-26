@@ -32,6 +32,27 @@ fn main() -> eframe::Result<()> {
         println!("wrote {path}");
         return Ok(());
     }
+    // `--convert <in> <out>`: open any supported file and save it in the format of <out>
+    // (.ferrum and .pdn keep layers; other formats are flattened).
+    if args.first().map(|s| s == "--convert").unwrap_or(false) {
+        let (Some(src), Some(dst)) = (args.get(1), args.get(2)) else {
+            eprintln!("usage: ferrum-paint --convert <input> <output>");
+            std::process::exit(2);
+        };
+        let res = fileio::load(std::path::Path::new(src)).and_then(|doc| {
+            let out = std::path::Path::new(dst);
+            if matches!(app::file_ext(out).as_str(), "ferrum" | "pdn") {
+                fileio::save(&doc, out)
+            } else {
+                fileio::export_flat(&doc, out, 92)
+            }
+        });
+        if let Err(e) = res {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     // `--register-file-type` (Windows): associate .ferrum files with this executable for the current user.
     if args.first().map(|s| s == "--register-file-type").unwrap_or(false) {
         match register_file_type() {

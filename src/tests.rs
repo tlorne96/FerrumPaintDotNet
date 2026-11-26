@@ -501,3 +501,86 @@ fn pdn_rejects_garbage_and_custom_blends_work() {
     // negation: 1 - |1 - a - b|
     assert!((p.red() as i32 - 192).abs() <= 1 && (p.green() as i32 - 255).abs() <= 1 && (p.blue() as i32 - 191).abs() <= 2, "{p:?}");
 }
+#[test]
+#[ignore]
+fn pdn_dump() {
+    let (Ok(f), Ok(out)) = (std::env::var("FERRUM_PDN_FILE"), std::env::var("FERRUM_PDN_DUMP")) else { return };
+    std::fs::write(out, crate::pdn::dump(&std::fs::read(f).unwrap())).unwrap();
+}
+fn pdn_test_doc() -> crate::document::Document {
+    use crate::document::{Document, Layer, LayerBlend};
+    let mut layers = vec![];
+    let modes: Vec<LayerBlend> = [0usize, 1, 2, 3, 4, 18, 19, 5, 8, 20, 10, 11, 12, 13].iter().map(|&i| LayerBlend::ALL[i]).collect();
+    for (i, b) in modes.iter().enumerate() {
+        let mut pm = raster::new_pixmap(300, 200);
+        if i == 0 {
+            pm.fill(tiny_skia::Color::from_rgba8(40, 110, 220, 255));
+        } else {
+            let mut paint = tiny_skia::Paint::default();
+            paint.set_color_rgba8((i * 37 % 256) as u8, (255 - i * 17) as u8, (i * 90 % 256) as u8, if i % 3 == 0 { 128 } else { 255 });
+            let r = tiny_skia::Rect::from_xywh((i * 18) as f32, (i * 11) as f32, 60.0, 40.0).unwrap();
+            pm.fill_rect(r, &paint, tiny_skia::Transform::identity(), None);
+        }
+        layers.push(Layer { name: format!("{} layer \u{e9}", b.name()), pixmap: pm, visible: i != 7, opacity: if i == 4 { 161 } else { 255 }, blend: *b });
+    }
+    Document::from_layers("blend test", 300, 200, layers, "New Image")
+}
+
+#[test]
+fn pdn_export_round_trips() {
+    let doc = pdn_test_doc();
+    let bytes = crate::pdn::save(&doc).unwrap();
+    let back = crate::pdn::load(&bytes, "x".into()).unwrap();
+    assert_eq!((back.width, back.height, back.layers.len()), (300, 200, 14));
+    for (a, b) in doc.layers.iter().zip(&back.layers) {
+        assert_eq!(a.name, b.name);
+        assert_eq!((a.visible, a.opacity, a.blend), (b.visible, b.opacity, b.blend));
+        for (p, q) in a.pixmap.data().chunks(4).zip(b.pixmap.data().chunks(4)) {
+            assert_eq!(p[3], q[3]);
+            for c in 0..3 {
+                assert!((p[c] as i32 - q[c] as i32).abs() <= 1, "{p:?} vs {q:?}");
+            }
+        }
+    }
+    // a blend mode Paint.NET lacks is reported and saved as Normal
+    let mut doc2 = pdn_test_doc();
+    doc2.layers[2].blend = crate::document::LayerBlend::SoftLight;
+    assert_eq!(crate::pdn::unsupported_blends(&doc2).len(), 1);
+    let back2 = crate::pdn::load(&crate::pdn::save(&doc2).unwrap(), "x".into()).unwrap();
+    assert_eq!(back2.layers[2].blend, crate::document::LayerBlend::Normal);
+}
+
+/// Re-saves every .pdn under FERRUM_PDN_DIRS into FERRUM_PDN_OUT (plus a 14-blend-mode test
+/// file), for opening in Paint.NET.
+#[test]
+#[ignore]
+fn pdn_resave_samples() {
+    let Ok(out) = std::env::var("FERRUM_PDN_OUT") else { return };
+    let out = std::path::PathBuf::from(out);
+    std::fs::create_dir_all(&out).unwrap();
+    crate::fileio::save(&pdn_test_doc(), &out.join("ferrum_blend_modes.pdn")).unwrap();
+    for dir in std::env::var("FERRUM_PDN_DIRS").unwrap_or_default().split(';').filter(|s| !s.is_empty()) {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            if crate::app::file_ext(&p) != "pdn" {
+                continue;
+            }
+            let doc = crate::fileio::load(&p).unwrap();
+            let t = std::time::Instant::now();
+            let dst = out.join(format!("resaved_{}", p.file_name().unwrap().to_string_lossy()));
+            crate::fileio::save(&doc, &dst).unwrap();
+            println!("{} -> {:.2}s, {} KB (original {} KB)", p.display(), t.elapsed().as_secs_f32(), std::fs::metadata(&dst).unwrap().len() / 1024, std::fs::metadata(&p).unwrap().len() / 1024);
+        }
+    }
+}
+#[test]
+fn xor_blend_is_bitwise_like_paint_net() {
+    use crate::document::{draw_layer, LayerBlend};
+    let mut dst = raster::new_pixmap(1, 1);
+    dst.fill(tiny_skia::Color::from_rgba8(40, 110, 220, 255));
+    let mut src = raster::new_pixmap(1, 1);
+    src.fill(tiny_skia::Color::from_rgba8(225, 34, 146, 255));
+    draw_layer(&mut dst, &src, 255, LayerBlend::Xor);
+    let p = dst.pixel(0, 0).unwrap();
+    assert_eq!((p.red(), p.green(), p.blue(), p.alpha()), (201, 76, 78, 255));
+}

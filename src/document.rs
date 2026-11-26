@@ -93,7 +93,7 @@ impl LayerBlend {
             LayerBlend::Lighten => BlendMode::Lighten,
             LayerBlend::Darken => BlendMode::Darken,
             LayerBlend::Screen => BlendMode::Screen,
-            LayerBlend::Xor => BlendMode::Xor,
+            LayerBlend::Xor => BlendMode::SourceOver,
             LayerBlend::Hue => BlendMode::Hue,
             LayerBlend::Saturation => BlendMode::Saturation,
             LayerBlend::Color => BlendMode::Color,
@@ -108,6 +108,8 @@ impl LayerBlend {
             LayerBlend::Reflect => Some(|a, b| if b >= 1.0 { 1.0 } else { (a * a / (1.0 - b)).min(1.0) }),
             LayerBlend::Glow => Some(|a, b| if a >= 1.0 { 1.0 } else { (b * b / (1.0 - a)).min(1.0) }),
             LayerBlend::Negation => Some(|a, b| 1.0 - (1.0 - a - b).abs()),
+            // bitwise XOR of the 8-bit colour values, as in Paint.NET
+            LayerBlend::Xor => Some(|a, b| (((a * 255.0).round() as u8) ^ ((b * 255.0).round() as u8)) as f32 / 255.0),
             _ => None,
         }
     }
