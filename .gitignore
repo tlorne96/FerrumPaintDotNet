@@ -1,0 +1,4 @@
+﻿target/
+build.log
+test.log
+docs/shot*.png

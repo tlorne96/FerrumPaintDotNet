@@ -1,0 +1,29 @@
+[package]
+name = "ferrum-paint"
+version = "0.1.0"
+edition = "2021"
+description = "Ferrum Paint - a clean-room raster image editor built with egui and tiny-skia"
+license = "MIT"
+
+[dependencies]
+eframe = { version = "=0.31.1", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
+egui = "=0.31.1"
+epaint_default_fonts = "=0.31.1"
+tiny-skia = "=0.11.4"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga", "tiff", "webp", "ico"] }
+ab_glyph = "0.2"
+arboard = { version = "3.4", default-features = false, features = ["image-data"] }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+
+[patch.crates-io]
+egui-winit = { path = "vendor/egui-winit" }
