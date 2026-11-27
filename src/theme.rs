@@ -62,8 +62,71 @@ pub fn ui_pal(ui: &Ui) -> Pal {
     pal(ui.visuals().dark_mode)
 }
 
-pub fn apply(ctx: &egui::Context, dark: bool) {
-    ctx.set_theme(if dark { egui::Theme::Dark } else { egui::Theme::Light });
+/// Which theme the user picked. `System` follows the OS setting live (Windows reports changes
+/// while running; where the OS doesn't report a theme, dark is used).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ThemeMode {
+    System,
+    Light,
+    Dark,
+}
+
+impl ThemeMode {
+    pub const ALL: [ThemeMode; 3] = [ThemeMode::System, ThemeMode::Light, ThemeMode::Dark];
+    pub fn label(self) -> &'static str {
+        match self {
+            ThemeMode::System => "Use System Setting",
+            ThemeMode::Light => "Light",
+            ThemeMode::Dark => "Dark",
+        }
+    }
+    fn key(self) -> &'static str {
+        match self {
+            ThemeMode::System => "system",
+            ThemeMode::Light => "light",
+            ThemeMode::Dark => "dark",
+        }
+    }
+}
+
+/// Saved theme choice. (Uses a new key; the old light/dark-only `theme=` entry is ignored so
+/// everyone starts out following the system.)
+pub fn load_theme_mode() -> ThemeMode {
+    match load_pref("ui_theme").as_deref() {
+        Some("light") => ThemeMode::Light,
+        Some("dark") => ThemeMode::Dark,
+        _ => ThemeMode::System,
+    }
+}
+
+pub fn save_theme_mode(mode: ThemeMode) {
+    save_pref("ui_theme", mode.key());
+}
+
+/// Install the light and dark styles once, then select `mode`.
+pub fn install(ctx: &egui::Context, mode: ThemeMode) {
+    for theme in [egui::Theme::Light, egui::Theme::Dark] {
+        let mut s = (*ctx.style_of(theme)).clone();
+        s.visuals = visuals(theme == egui::Theme::Dark);
+        tune_style(&mut s);
+        ctx.set_style_of(theme, s);
+    }
+    set_mode(ctx, mode);
+}
+
+/// Switch theme, including the native window title bar.
+pub fn set_mode(ctx: &egui::Context, mode: ThemeMode) {
+    ctx.options_mut(|o| o.fallback_theme = egui::Theme::Dark);
+    let (pref, native) = match mode {
+        ThemeMode::System => (egui::ThemePreference::System, egui::SystemTheme::SystemDefault),
+        ThemeMode::Light => (egui::ThemePreference::Light, egui::SystemTheme::Light),
+        ThemeMode::Dark => (egui::ThemePreference::Dark, egui::SystemTheme::Dark),
+    };
+    ctx.set_theme(pref);
+    ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(native));
+}
+
+fn visuals(dark: bool) -> egui::Visuals {
     let p = pal(dark);
     let mut v = if dark { egui::Visuals::dark() } else { egui::Visuals::light() };
     let r4 = CornerRadius::same(4);
@@ -119,9 +182,11 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
     w.open.bg_stroke = Stroke::new(1.0f32, p.accent);
     w.open.fg_stroke = Stroke::new(1.0f32, p.text);
     w.open.corner_radius = r4;
+    v
+}
 
-    ctx.set_visuals(v);
-    ctx.style_mut(|s| {
+fn tune_style(s: &mut egui::Style) {
+    {
         use egui::{FontFamily::Proportional, FontId, TextStyle};
         s.text_styles = [
             (TextStyle::Small, FontId::new(11.0, Proportional)),
@@ -139,7 +204,7 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
         s.spacing.slider_width = 170.0;
         s.spacing.combo_height = 320.0;
         s.interaction.selectable_labels = false;
-    });
+    }
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -202,15 +267,6 @@ pub fn save_pref(key: &str, value: &str) {
     let mut out: String = old.lines().filter(|l| !l.starts_with(pre.as_str()) && !l.trim().is_empty()).map(|l| format!("{l}\n")).collect();
     out.push_str(&format!("{key}={value}\n"));
     let _ = std::fs::write(p, out);
-}
-
-/// Saved theme preference (`None` = not set yet).
-pub fn load_dark_pref() -> Option<bool> {
-    load_pref("theme").map(|v| v == "dark")
-}
-
-pub fn save_dark_pref(dark: bool) {
-    save_pref("theme", if dark { "dark" } else { "light" });
 }
 
 // ----------------------------------------------------------------------------------------------

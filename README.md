@@ -43,7 +43,7 @@ Ferrum Paint is an independent clean-room implementation. Its behaviour is based
   - The preview renders on a background thread, so the UI stays responsive. Cancel restores the original, and effects apply only inside the selection.
   - Ctrl+F repeats the last effect with the same settings.
 - **Snap to Grid** (**View → Snap to Grid**, Ctrl+; or the toolbar magnet-grid button): shapes, lines/curves, rectangle and ellipse selections, gradients, text placement and moves snap to a grid. The grid size (default 16 px) is set in the View menu or in the toolbar next to the button, and the grid is drawn over the canvas while snapping is on. Freehand tools (brush, pencil, eraser, lasso, etc.) are never snapped. The setting is remembered.
-- **Look**: light and dark themes (**View → Dark Theme**, remembered between sessions; the first run follows the system theme), native UI font (Segoe UI on Windows, Ubuntu on Ubuntu), compact tool-window headers.
+- **Look**: dark mode and light mode. **View → Theme** offers Use System Setting (the default; on Windows it follows changes to the system theme while the app is running), Light or Dark, and the sun/moon button at the right end of the toolbar switches instantly. The window title bar matches on Windows, and the choice is remembered. Also native UI font (Segoe UI on Windows, Ubuntu on Ubuntu), compact tool-window headers.
 - **Clipboard**: cut, copy, copy merged, paste, paste into new layer and paste into new image. Images are exchanged with other applications through the system clipboard.
 - **Files**:
   - Native layered format: `.ferrum`. Like `.pdn`, it keeps every layer with its name, visibility, opacity and blend mode, so you can close the app and carry on later without merging anything.

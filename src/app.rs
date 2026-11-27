@@ -68,6 +68,7 @@ pub enum Cmd {
     Finish,
     SwapColors,
     ToggleTheme,
+    SetTheme(crate::theme::ThemeMode),
 }
 
 pub struct App {
@@ -111,18 +112,23 @@ pub struct App {
     pub last_title: String,
     pub untitled_counter: u32,
     pub last_new_size: (u32, u32),
+    /// Whether the dark style is showing this frame (follows the system in System mode).
     pub dark: bool,
+    pub theme_mode: crate::theme::ThemeMode,
+    /// The native title-bar theme must be sent again once the window exists.
+    pub native_theme_pending: bool,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, files: Vec<PathBuf>) -> Self {
         let ctx = &cc.egui_ctx;
-        let dark = crate::theme::load_dark_pref().unwrap_or_else(|| ctx.system_theme() == Some(egui::Theme::Dark));
+        let mode = crate::theme::load_theme_mode();
         ctx.set_fonts(ui_fonts());
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
-        crate::theme::apply(ctx, dark);
+        crate::theme::install(ctx, mode);
         let mut app = Self::with_files(files);
-        app.dark = dark;
+        app.theme_mode = mode;
+        app.dark = ctx.theme() == egui::Theme::Dark;
         app.snap = crate::theme::load_pref("snap").map(|v| v == "on").unwrap_or(false);
         app.grid_size = crate::theme::load_pref("grid").and_then(|v| v.parse().ok()).unwrap_or(16u32).clamp(2, 1024);
         app.jpeg_quality = crate::theme::load_pref("jpeg_quality").and_then(|v| v.parse().ok()).unwrap_or(95u8).clamp(1, 100);
@@ -178,7 +184,9 @@ impl App {
             last_title: String::new(),
             untitled_counter: 1,
             last_new_size: (800, 600),
-            dark: false,
+            dark: true,
+            theme_mode: crate::theme::ThemeMode::System,
+            native_theme_pending: true,
         };
         for f in files {
             app.open_path(&f);
@@ -496,9 +504,14 @@ impl App {
             }
             Cmd::Filter(f) => self.start_filter(f),
             Cmd::ToggleTheme => {
-                self.dark = !self.dark;
-                crate::theme::apply(ctx, self.dark);
-                crate::theme::save_dark_pref(self.dark);
+                let mode = if self.dark { crate::theme::ThemeMode::Light } else { crate::theme::ThemeMode::Dark };
+                self.run(ctx, Cmd::SetTheme(mode));
+            }
+            Cmd::SetTheme(mode) => {
+                self.theme_mode = mode;
+                crate::theme::set_mode(ctx, mode);
+                crate::theme::save_theme_mode(mode);
+                self.dark = ctx.theme() == egui::Theme::Dark;
             }
             Cmd::RepeatEffect => {
                 if let Some(f) = self.last_effect.clone() {
@@ -1114,6 +1127,11 @@ fn default_palette() -> Vec<Col> {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.native_theme_pending {
+            self.native_theme_pending = false;
+            crate::theme::set_mode(ctx, self.theme_mode);
+        }
+        self.dark = ctx.theme() == egui::Theme::Dark;
         self.handle_dropped_files(ctx);
         self.handle_keys(ctx);
         self.sync_hsv();

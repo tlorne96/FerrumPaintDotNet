@@ -105,8 +105,14 @@ impl App {
                 if r.changed() { crate::theme::save_pref("grid", &self.grid_size.to_string()) }
             });
             ui.separator();
-            let d = if self.dark { "✔ Dark Theme" } else { "Dark Theme" };
-            if item(ui, d, "", true) { c(Cmd::ToggleTheme, true) }
+            let mode = self.theme_mode;
+            ui.menu_button("Theme", |ui| {
+                ui.set_min_width(170.0);
+                for m in crate::theme::ThemeMode::ALL {
+                    let label = if m == mode { format!("✔ {}", m.label()) } else { format!("    {}", m.label()) };
+                    if item(ui, &label, "", true) { c(Cmd::SetTheme(m), true) }
+                }
+            });
         });
         ui.menu_button("Image", |ui| {
             ui.set_min_width(SC_MENU_W);
@@ -289,6 +295,11 @@ impl App {
             r.on_hover_text("Grid size");
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let (icon, tip) = if self.dark { (Icon::Sun, "Switch to the light theme") } else { (Icon::Moon, "Switch to the dark theme") };
+            if icon_button(ui, icon, false, sz, tip).clicked() {
+                cmds.push(Cmd::ToggleTheme);
+            }
+            ui.separator();
             let wins = [(Icon::Colors, 3u8, "Colors (F8)"), (Icon::Layers, 2, "Layers (F7)"), (Icon::History, 1, "History (F6)"), (Icon::Tools, 0, "Tools (F5)")];
             for (icon, i, tip) in wins {
                 if icon_button(ui, icon, self.show[i as usize], sz, tip).clicked() {

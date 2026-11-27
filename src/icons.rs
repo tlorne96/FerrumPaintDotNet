@@ -30,6 +30,8 @@ pub enum Icon {
     History,
     Layers,
     Colors,
+    Sun,
+    Moon,
 }
 
 const INK: Color32 = Color32::from_rgb(40, 44, 52);
@@ -316,7 +318,61 @@ pub fn paint_icon(p: &Painter, r: Rect, icon: Icon) {
             k.circle(0.62, 0.4, 0.22, Color32::from_rgba_unmultiplied(40, 160, 60, 200), 0.0, GREEN);
             k.circle(0.5, 0.62, 0.22, Color32::from_rgba_unmultiplied(50, 110, 220, 200), 0.0, BLUE);
         }
+        Icon::Sun => {
+            k.circle(0.5, 0.5, 0.17, GOLD, 0.0, GOLD);
+            for i in 0..8 {
+                let t = i as f32 / 8.0 * std::f32::consts::TAU;
+                let (c, s) = (t.cos(), t.sin());
+                k.line((0.5 + 0.27 * c, 0.5 + 0.27 * s), (0.5 + 0.4 * c, 0.5 + 0.4 * s), 1.8, GOLD);
+            }
+        }
+        Icon::Moon => crescent(&k, Color32::from_rgb(84, 96, 140)),
     }
+}
+
+/// Crescent moon: the part of circle A outside circle B, filled as a triangle strip between
+/// the outer arc of A and the inner arc of B (both run between the circles' intersections).
+fn crescent(k: &Pen, color: Color32) {
+    use std::f32::consts::{PI, TAU};
+    let (a, ra) = ((0.48f32, 0.52f32), 0.36f32);
+    let (b, rb) = ((0.66f32, 0.36f32), 0.3f32);
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let d = (dx * dx + dy * dy).sqrt();
+    let m = (ra * ra - rb * rb + d * d) / (2.0 * d);
+    let h = (ra * ra - m * m).max(0.0).sqrt();
+    let (ux, uy) = (dx / d, dy / d);
+    let base = (a.0 + m * ux, a.1 + m * uy);
+    let p1 = (base.0 - h * uy, base.1 + h * ux);
+    let p2 = (base.0 + h * uy, base.1 - h * ux);
+    let away = uy.atan2(ux) + PI; // direction from the circles' centres away from B
+    // sample an arc of circle (c, r) from p to q, going through angle `via`
+    let arc = |c: (f32, f32), r: f32, p: (f32, f32), q: (f32, f32), via: f32, n: usize| -> Vec<Pos2> {
+        let ang = |pt: (f32, f32)| (pt.1 - c.1).atan2(pt.0 - c.0);
+        let norm = |x: f32| x.rem_euclid(TAU);
+        let (t0, t1) = (ang(p), ang(q));
+        let mut sweep = norm(t1 - t0);
+        if norm(via - t0) > sweep {
+            sweep -= TAU;
+        }
+        (0..=n).map(|i| {
+            let t = t0 + sweep * i as f32 / n as f32;
+            k.at(c.0 + r * t.cos(), c.1 + r * t.sin())
+        }).collect()
+    };
+    let outer = arc(a, ra, p1, p2, away, 24);
+    let inner = arc(b, rb, p1, p2, away, 24);
+    let col = k.k(color);
+    let mut mesh = egui::Mesh::default();
+    for (o, i) in outer.iter().zip(inner.iter()) {
+        mesh.colored_vertex(*o, col);
+        mesh.colored_vertex(*i, col);
+    }
+    for j in 0..outer.len() as u32 - 1 {
+        let v = j * 2;
+        mesh.add_triangle(v, v + 1, v + 2);
+        mesh.add_triangle(v + 1, v + 3, v + 2);
+    }
+    k.p.add(Shape::mesh(mesh));
 }
 
 fn paint_tool(k: &Pen, t: Tool) {
