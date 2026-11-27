@@ -80,3 +80,14 @@ and the user-visible descriptions of each control were used; all algorithms are 
 - With the user's approval, the writer reproduces the record layout, class names, field names and assembly names observed in the *data* of .pdn files saved by Paint.NET 5.2 (dumped with Ferrum Paint's own reader). No Paint.NET code or binaries were examined.
 - Output is verified by reading it back with the importer and by opening it in Paint.NET 5.2 (layers, blend modes, 7017×4959 drawings).
 - Xor is a bitwise XOR of 8-bit colour values; this was confirmed by comparing Paint.NET's rendering of an exported test file, not by reading its code.
+## Plugin-inspired effects (v0.1.3)
+The user supplied a folder of third-party Paint.NET plugin DLLs (pyrochild's pack, by Zach Walker). Only the DLL version information and the list of referenced assemblies were read, to see what they target: Paint.NET 3.5 (.NET 2.0), 4.x (.NET 4.6/4.7) and 5.1 (.NET 9), all linking Paint.NET's own PaintDotNet.* assemblies, some with WinForms UIs. Nothing was decompiled. Loading them would need Paint.NET's proprietary assemblies or a reimplementation of its plugin API, and would be Windows-only, so Ferrum Paint instead has native effects written from the public descriptions on the plugin forum:
+- Pack thread: https://forums.paint.net/topic/7291-pyrochild-plugins-2026-10-04/
+- Jitter: https://forums.paint.net/topic/4681-jitter/ (rows shifted by a random amount; angle, row width, edge behaviour).
+- Outline Object: https://forums.paint.net/topic/4923-outline-object/ (outline around non-transparent pixels in the primary colour; width, softness). Ours uses an exact Euclidean distance transform (Felzenszwalb & Huttenlocher, "Distance Transforms of Sampled Functions", 2012).
+- Stitch: https://forums.paint.net/topic/5936-stitch/ (stitched/embroidered look, two angles).
+- Random Shape Fill: https://forums.paint.net/topic/10633-random-shape-fill/ (shape modes, fill/outline colour modes, size, transparency, keep inside, antialiasing). Ours reuses Ferrum's Shapes-tool outlines.
+- Trail: https://forums.paint.net/topic/18653-trail/ (object trail, distance, angle, fading tail).
+- Film, Gradient Blocks, Gradient Bars, Gradient Grid, Gradient Mapping, Borders N' Shapes, Pixelate+, Splatter, Random Effect: one-line descriptions in the pack thread only.
+The author's GitHub repositories (https://github.com/bsneeze) were not read. Names were changed where the original was a brand (Pixelate+ -> Rectangular Pixelate, Random Shape Fill -> Random Shapes, Trail -> Object Trail, Borders N' Shapes -> Borders and Shapes, Gradient Mapping -> Gradient Map).
+Not done (interactive tools needing a canvas UI): Liquify, Grid Warp, Smudge, interactive Twist; also Curves+ and Color Match.

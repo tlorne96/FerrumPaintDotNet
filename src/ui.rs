@@ -150,12 +150,13 @@ impl App {
         let fx = |k: Fx| Filter::Fx(FxState::new(k, pc, sc2));
         ui.menu_button("Adjustments", |ui| {
             ui.set_min_width(SC_MENU_W);
-            let adj: [(Filter, &str); 13] = [
+            let adj: [(Filter, &str); 14] = [
                 (Filter::AutoLevel, "Ctrl+Shift+L"),
                 (Filter::BlackAndWhite, "Ctrl+Shift+G"),
                 (Filter::BrightnessContrast { brightness: 0, contrast: 0 }, "Ctrl+Shift+T"),
                 (Filter::Curves { points: vec![(0, 0), (255, 255)], luminosity: true }, "Ctrl+Shift+M"),
                 (fx(Fx::Exposure), ""),
+                (fx(Fx::GradientMap), ""),
                 (fx(Fx::HighlightsShadows), ""),
                 (Filter::HueSaturation { hue: 0, saturation: 100, lightness: 0 }, "Ctrl+Shift+U"),
                 (Filter::InvertAlpha, "Ctrl+Alt+I"),
@@ -174,6 +175,7 @@ impl App {
             ui.set_min_width(SC_MENU_W);
             let last = self.last_effect.as_ref().map(|f| format!("Repeat {}", f.name())).unwrap_or("Repeat Effect".into());
             if item(ui, &last, "Ctrl+F", has && self.last_effect.is_some()) { c(Cmd::RepeatEffect, true) }
+            if item(ui, "Random Effect...", "", has) { c(Cmd::RandomEffect, true) }
             ui.separator();
             for m in Menu::EFFECT_MENUS {
                 ui.menu_button(m.name(), |ui| {

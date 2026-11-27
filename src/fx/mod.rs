@@ -8,6 +8,7 @@ mod adjust;
 mod artistic;
 mod blurs;
 mod distort;
+mod extras;
 mod photo;
 mod render;
 mod stylize;
@@ -173,6 +174,7 @@ macro_rules! effects {
 
 effects! {
     Exposure => "Exposure", Adjustments;
+    GradientMap => "Gradient Map", Adjustments;
     HighlightsShadows => "Highlights / Shadows", Adjustments;
     Sepia => "Sepia", Adjustments;
     TemperatureTint => "Temperature and Tint", Adjustments;
@@ -183,11 +185,13 @@ effects! {
     OilPainting => "Oil Painting", Artistic;
     PencilSketch => "Pencil Sketch", Artistic;
     Pointillism => "Pointillism", Artistic;
+    Splatter => "Splatter", Artistic;
     StainedGlass => "Stained Glass", Artistic;
 
     BokehBlur => "Bokeh Blur", Blurs;
     FragmentBlur => "Fragment Blur", Blurs;
     GaussianBlur => "Gaussian Blur", Blurs;
+    GradientBlocks => "Gradient Blocks", Blurs;
     MedianBlur => "Median Blur", Blurs;
     MotionBlur => "Motion Blur", Blurs;
     RadialBlur => "Radial Blur", Blurs;
@@ -202,10 +206,13 @@ effects! {
     Crystalize => "Crystalize", Distort;
     Dents => "Dents", Distort;
     FrostedGlass => "Frosted Glass", Distort;
+    Jitter => "Jitter", Distort;
     Morphology => "Morphology", Distort;
     Pixelate => "Pixelate", Distort;
     PolarInversion => "Polar Inversion", Distort;
+    RectPixelate => "Rectangular Pixelate", Distort;
     Spherize => "Spherize", Distort;
+    Stitch => "Stitch", Distort;
     TileReflection => "Tile Reflection", Distort;
     Twist => "Twist", Distort;
     Waves => "Waves", Distort;
@@ -214,7 +221,10 @@ effects! {
     ReduceNoise => "Reduce Noise", Noise;
 
     DropShadow => "Drop Shadow", Object;
+    ObjectTrail => "Object Trail", Object;
+    OutlineObject => "Outline Object", Object;
 
+    Film => "Film", Photo;
     Glow => "Glow", Photo;
     RedEyeRemoval => "Red Eye Removal", Photo;
     Sharpen => "Sharpen", Photo;
@@ -222,9 +232,13 @@ effects! {
     Straighten => "Straighten", Photo;
     Vignette => "Vignette", Photo;
 
+    BordersShapes => "Borders and Shapes", Render;
     Clouds => "Clouds", Render;
+    GradientBars => "Gradient Bars", Render;
+    GradientGrid => "Gradient Grid", Render;
     JuliaFractal => "Julia Fractal", Render;
     MandelbrotFractal => "Mandelbrot Fractal", Render;
+    RandomShapes => "Random Shapes", Render;
     Turbulence => "Turbulence", Render;
 
     EdgeDetect => "Edge Detect", Stylize;
@@ -249,6 +263,13 @@ impl Fx {
         use P::*;
         match self {
             Fx::Exposure => vec![Float("Exposure", -5.0, 5.0, 0.0)],
+            Fx::GradientMap => vec![
+                Choice("Gradient", extras::GRADIENTS, 0),
+                Bool("Reverse", false),
+                Int("Strength", 0, 100, 100),
+                Color("Color 1", ColDef::Primary),
+                Color("Color 2", ColDef::Secondary),
+            ],
             Fx::HighlightsShadows => vec![Int("Shadows", 0, 100, 25), Int("Highlights", 0, 100, 0), Int("Radius", 1, 100, 20)],
             Fx::Sepia => vec![Int("Intensity", 0, 100, 100)],
             Fx::TemperatureTint => vec![Int("Temperature", -100, 100, 0), Int("Tint", -100, 100, 0)],
@@ -278,6 +299,17 @@ impl Fx {
                 Seed,
             ],
             Fx::OilPainting => vec![Int("Brush size", 1, 8, 3), Int("Coarseness", 3, 255, 50)],
+            Fx::Splatter => vec![
+                Int("Splats", 1, 500, 20),
+                Int("Size", 2, 1000, 40),
+                Int("Droplets", 0, 200, 30),
+                Int("Strings", 0, 100, 6),
+                Choice("Colors", extras::SPLAT_COLORS, 3),
+                Int("Opacity", 1, 100, 100),
+                Color("Color 1", ColDef::Primary),
+                Color("Color 2", ColDef::Secondary),
+                Seed,
+            ],
             Fx::PencilSketch => vec![Int("Pencil tip size", 1, 20, 2), Int("Range", -20, 20, 0)],
             Fx::Pointillism => vec![
                 Int("Cell size", 2, 64, 8),
@@ -301,6 +333,7 @@ impl Fx {
             Fx::BokehBlur => vec![Int("Radius", 1, 100, 6), Float("Gamma boost", 1.0, 8.0, 3.0), Int("Quality", 1, 5, 3)],
             Fx::FragmentBlur => vec![Int("Fragment count", 2, 50, 4), Int("Distance", 0, 100, 8), Angle("Rotation", 0.0)],
             Fx::GaussianBlur => vec![Int("Radius", 0, 200, 2), Float("Gamma boost", 0.2, 4.0, 1.0), Int("Quality", 1, 5, 3)],
+            Fx::GradientBlocks => vec![Int("Block width", 2, 500, 16), Int("Block height", 2, 500, 16)],
             Fx::MedianBlur => vec![Int("Radius", 1, 100, 10), Int("Percentile", 0, 100, 50), Int("Quality", 1, 5, 4)],
             Fx::MotionBlur => vec![Angle("Angle", 25.0), Int("Distance", 1, 200, 10), Bool("Centered", true), Choice("Edge behavior", EDGE, 0)],
             Fx::RadialBlur => vec![Float("Angle", 0.0, 360.0, 2.0), Point("Center"), Int("Quality", 1, 5, 2)],
@@ -324,6 +357,9 @@ impl Fx {
                 Seed,
             ],
             Fx::FrostedGlass => vec![Int("Maximum scatter radius", 0, 200, 3), Int("Minimum scatter radius", 0, 200, 0), Int("Diffusion", 0, 100, 50), Int("Smoothness", 1, 10, 2), Seed],
+            Fx::Jitter => vec![Angle("Angle", 0.0), Int("Row width", 1, 200, 2), Int("Amount", 0, 500, 10), Choice("Edge behavior", EDGE, 0), Seed],
+            Fx::RectPixelate => vec![Int("Cell width", 1, 500, 16), Int("Cell height", 1, 500, 8), Choice("Color", &["Average", "Center pixel"], 0)],
+            Fx::Stitch => vec![Angle("Row angle", 0.0), Angle("Stitch angle", 45.0), Int("Stitch width", 1, 100, 4), Int("Stitch length", 2, 200, 10), Int("Relief", 0, 100, 40), Seed],
             Fx::Morphology => vec![Choice("Mode", &["Erode", "Dilate"], 1), Int("Width", 1, 100, 2), Int("Height", 1, 100, 2), Bool("Linked", true)],
             Fx::Pixelate => vec![Int("Cell size", 1, 100, 8), Choice("Scale down", &["Average", "Center pixel"], 0), Choice("Scale up", &["Nearest Neighbor", "Bilinear"], 0)],
             Fx::PolarInversion => vec![Float("Scale", -4.0, 4.0, 1.0), Point("Offset"), Choice("Edge behavior", EDGE, 1), Int("Quality", 1, 5, 2)],
@@ -355,7 +391,19 @@ impl Fx {
                 Color("Color", ColDef::Rgba(0, 0, 0, 255)),
                 Bool("Only draw shadow", false),
             ],
+            Fx::ObjectTrail => vec![Int("Distance", 1, 500, 40), Angle("Angle", 135.0), Int("Fade", 0, 100, 20), Int("Opacity", 0, 100, 100)],
+            Fx::OutlineObject => vec![Int("Width", 1, 200, 3), Int("Softness", 0, 100, 0), Color("Color", ColDef::Primary), Bool("Outline only", false)],
 
+            Fx::Film => vec![
+                Int("Grain", 0, 100, 35),
+                Int("Grain size", 1, 10, 2),
+                Int("Zoom", 100, 300, 100),
+                Int("Saturation", 0, 200, 80),
+                Int("Contrast", -100, 100, 15),
+                Int("Warmth", -100, 100, 10),
+                Choice("Letterbox", extras::LETTERBOX, 0),
+                Seed,
+            ],
             Fx::Glow => vec![Int("Radius", 1, 20, 6), Int("Brightness", -100, 100, 10), Int("Contrast", -100, 100, 10)],
             Fx::RedEyeRemoval => vec![Int("Tolerance", 0, 100, 70), Int("Strength", 0, 100, 90)],
             Fx::Sharpen => vec![Int("Amount", 1, 20, 10), Int("Threshold", 0, 255, 0)],
@@ -363,9 +411,56 @@ impl Fx {
             Fx::Straighten => vec![Float("Angle", -45.0, 45.0, 0.0), Choice("Sampling", SAMPLING, 0)],
             Fx::Vignette => vec![Point("Center"), Float("Radius", 0.1, 4.0, 1.0), Float("Strength", 0.0, 1.0, 1.0)],
 
+            Fx::BordersShapes => vec![
+                Choice("Shape", extras::BORDER_SHAPES, 0),
+                Choice("Line style", extras::LINE_STYLES, 0),
+                Int("Line width", 1, 200, 4),
+                Int("Margin", 0, 1000, 0),
+                Angle("Start angle", 0.0),
+                Float("Sweep angle", 1.0, 360.0, 270.0),
+                Bool("Fill", false),
+                Bool("Antialiasing", true),
+                Color("Line color", ColDef::Primary),
+                Color("Fill color", ColDef::Secondary),
+            ],
             Fx::Clouds => vec![Int("Scale", 2, 1000, 250), Float("Roughness", 0.0, 1.0, 0.5), Choice("Blend mode", BLEND, 0), Seed, Color("Color 1", ColDef::Primary), Color("Color 2", ColDef::Secondary)],
+            Fx::GradientBars => vec![
+                Int("Bar width", 2, 1000, 40),
+                Angle("Angle", 0.0),
+                Choice("Style", extras::BAR_STYLES, 1),
+                Choice("Colors", extras::BAR_COLORS, 0),
+                Choice("Blend mode", BLEND, 0),
+                Color("Color 1", ColDef::Primary),
+                Color("Color 2", ColDef::Secondary),
+                Seed,
+            ],
+            Fx::GradientGrid => vec![
+                Int("Cell width", 2, 1000, 50),
+                Int("Cell height", 2, 1000, 50),
+                Choice("Pattern", extras::GRID_PATTERNS, 0),
+                Bool("Checkerboard flip", true),
+                Choice("Blend mode", BLEND, 0),
+                Color("Color 1", ColDef::Primary),
+                Color("Color 2", ColDef::Secondary),
+            ],
             Fx::JuliaFractal => vec![Float("Factor", 1.0, 10.0, 4.0), Float("Zoom", 0.1, 50.0, 1.0), Angle("Angle", 0.0), Int("Quality", 1, 5, 2), Choice("Blend mode", BLEND, 0)],
             Fx::MandelbrotFractal => vec![Float("Factor", 1.0, 10.0, 1.0), Float("Zoom", 0.1, 100.0, 1.0), Angle("Angle", 0.0), Int("Quality", 1, 5, 2), Bool("Invert colors", false), Choice("Blend mode", BLEND, 0)],
+            Fx::RandomShapes => vec![
+                Choice("Shape", extras::SHAPES, 0),
+                Int("Count", 1, 5000, 60),
+                Int("Minimum size", 2, 2000, 12),
+                Int("Maximum size", 2, 2000, 60),
+                Choice("Fill", extras::COLOR_MODES, 4),
+                Choice("Outline", extras::COLOR_MODES, 0),
+                Int("Outline width", 1, 100, 2),
+                Int("Transparency", 0, 100, 0),
+                Bool("Random rotation", false),
+                Bool("Keep inside", true),
+                Bool("Antialiasing", true),
+                Seed,
+                Color("Color 1", ColDef::Primary),
+                Color("Color 2", ColDef::Secondary),
+            ],
             Fx::Turbulence => vec![Int("Octaves", 1, 10, 5), Int("Period", 2, 1000, 120), Float("Size", 0.1, 1.0, 0.5), Choice("Noise", &["Turbulence", "Fractal sum"], 0), Choice("Blend mode", BLEND, 0), Seed],
 
             Fx::EdgeDetect => vec![Float("Strength", 0.0, 4.0, 1.0), Int("Blurring", 0, 20, 0), Choice("Algorithm", &["Sobel", "Prewitt"], 0), Bool("Overlay edges", false)],
@@ -465,8 +560,59 @@ pub fn apply(st: &FxState, src: &Pixmap, mask: Option<&Mask>) -> Pixmap {
         }
         Fx::Clouds | Fx::JuliaFractal | Fx::MandelbrotFractal | Fx::Turbulence => render::apply(st.kind, &a, &b, bx),
         Fx::EdgeDetect | Fx::Emboss | Fx::Halftone | Fx::Outline | Fx::Relief => stylize::apply(st.kind, &a, &b, bx),
+        Fx::Jitter
+        | Fx::Stitch
+        | Fx::RectPixelate
+        | Fx::GradientBlocks
+        | Fx::OutlineObject
+        | Fx::ObjectTrail
+        | Fx::Film
+        | Fx::GradientMap
+        | Fx::GradientBars
+        | Fx::GradientGrid
+        | Fx::BordersShapes
+        | Fx::RandomShapes
+        | Fx::Splatter => extras::apply(st.kind, &a, &b, bx),
     };
     out.to_pixmap()
+}
+
+#[cfg(test)]
+pub use extras::distance_field as extras_distance_field;
+
+/// "Random Effect": pick any effect and give it random (but mostly sensible) settings.
+/// Colours keep the palette defaults and quality settings keep their defaults.
+pub fn random_state(primary: Col, secondary: Col, seed: u32) -> FxState {
+    let pool: Vec<Fx> = Fx::ALL.iter().copied().filter(|k| k.is_effect()).collect();
+    let mut n = 0;
+    let mut r = || {
+        n += 1;
+        rnd(n, 17, seed)
+    };
+    let kind = pool[(r() * pool.len() as f32) as usize % pool.len()];
+    let mut st = FxState::new(kind, primary, secondary);
+    for (i, p) in kind.params().iter().enumerate() {
+        let near = r() < 0.6;
+        let t = r();
+        st.vals[i] = match *p {
+            P::Int(name, lo, hi, d) if name != "Quality" => {
+                let span = (hi - lo) as f32;
+                let v = if near { d as f32 + (t - 0.5) * span * 0.3 } else { lo as f32 + t * span };
+                V::I((v.round() as i32).clamp(lo, hi))
+            }
+            P::Float(_, lo, hi, d) => {
+                let v = if near { d + (t - 0.5) * (hi - lo) * 0.3 } else { lo + t * (hi - lo) };
+                V::F(v.clamp(lo, hi))
+            }
+            P::Angle(..) => V::F((t * 360.0 - 180.0).round()),
+            P::Bool(..) => V::B(t < 0.5),
+            P::Choice(_, opts, d) => V::C(if near { d } else { (t * opts.len() as f32) as usize % opts.len().max(1) }),
+            P::Point(_) => V::Pt(t - 0.5, r() - 0.5),
+            P::Seed => V::Seed(hash(seed as i32, i as i32, 0x51).max(1)),
+            _ => st.vals[i],
+        };
+    }
+    st
 }
 
 // ----------------------------------------------------------------------------------------------

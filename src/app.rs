@@ -59,6 +59,7 @@ pub enum Cmd {
     LayerProperties,
     Filter(Filter),
     RepeatEffect,
+    RandomEffect,
     ToggleWindow(u8),
     ResetWindow(u8),
     About,
@@ -512,6 +513,11 @@ impl App {
                 crate::theme::set_mode(ctx, mode);
                 crate::theme::save_theme_mode(mode);
                 self.dark = ctx.theme() == egui::Theme::Dark;
+            }
+            Cmd::RandomEffect => {
+                let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos() ^ d.as_secs() as u32).unwrap_or(1);
+                let st = crate::fx::random_state(self.primary, self.secondary, seed);
+                self.start_filter(Filter::Fx(st));
             }
             Cmd::RepeatEffect => {
                 if let Some(f) = self.last_effect.clone() {

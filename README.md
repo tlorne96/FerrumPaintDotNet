@@ -29,15 +29,16 @@ Ferrum Paint is an independent clean-room implementation. Its behaviour is based
   - A shape stays editable after you draw it. Drag inside it to move it or drag a handle to resize it, then press Enter (or switch tool) to finish.
 - **Layers**: add, delete, duplicate, merge down, move up or down, visibility, and properties (name, opacity, and 21 blend modes, including Paint.NET's Reflect, Glow, Negation and bitwise Xor). A full undo/redo history is kept in the History window.
 - **Image menu**: crop to selection, resize (with resampling choice), canvas size (with anchor), flip, rotate 90°/180°, flatten, and Rotate/Zoom layer.
-- **Adjustments** (13): Auto-Level, Black and White, Brightness/Contrast, Curves, Exposure, Highlights/Shadows, Hue/Saturation, Invert Alpha, Invert Colors, Levels, Posterize, Sepia (with intensity), and Temperature and Tint.
-- **Effects** (47, in the same submenus as Paint.NET):
-  - Artistic: Ink Sketch, Linocut, Mosaic, Oil Painting, Pencil Sketch, Pointillism, Stained Glass.
-  - Blurs: Bokeh, Fragment, Gaussian, Median, Motion, Radial, Sketch, Square, Surface, Zoom.
+- **Adjustments** (14): Auto-Level, Black and White, Brightness/Contrast, Curves, Exposure, Gradient Map, Highlights/Shadows, Hue/Saturation, Invert Alpha, Invert Colors, Levels, Posterize, Sepia (with intensity), and Temperature and Tint.
+- **Effects** (59, in the same submenus as Paint.NET, plus **Effects → Random Effect**):
+  - Artistic: Ink Sketch, Linocut, Mosaic, Oil Painting, Pencil Sketch, Pointillism, Splatter, Stained Glass.
+  - Blurs: Bokeh, Fragment, Gaussian, Gradient Blocks, Median, Motion, Radial, Sketch, Square, Surface, Zoom.
   - Color: Quantize (median cut or octree, with dithering).
-  - Distort: Bulge, Crystalize, Dents, Frosted Glass, Morphology, Pixelate, Polar Inversion, Spherize, Tile Reflection, Twist, Waves.
-  - Noise: Add Noise, Reduce Noise. Object: Drop Shadow.
-  - Photo: Glow, Red Eye Removal, Sharpen, Soften Portrait, Straighten, Vignette.
-  - Render: Clouds, Julia Fractal, Mandelbrot Fractal, Turbulence (with blend modes).
+  - Distort: Bulge, Crystalize, Dents, Frosted Glass, Jitter, Morphology, Pixelate, Polar Inversion, Rectangular Pixelate, Spherize, Stitch, Tile Reflection, Twist, Waves.
+  - Noise: Add Noise, Reduce Noise. Object: Drop Shadow, Object Trail, Outline Object.
+  - Photo: Film, Glow, Red Eye Removal, Sharpen, Soften Portrait, Straighten, Vignette.
+  - Render: Borders and Shapes, Clouds, Gradient Bars, Gradient Grid, Julia Fractal, Mandelbrot Fractal, Random Shapes, Turbulence (with blend modes).
+  - Gradient Map, Splatter, Gradient Blocks, Jitter, Rectangular Pixelate, Stitch, Object Trail, Outline Object, Film, Borders and Shapes, Gradient Bars, Gradient Grid, Random Shapes and Random Effect are native, clean-room takes on popular third-party Paint.NET plugins (pyrochild's pack), written from the plugins' public one-line descriptions. Ferrum Paint can't load Paint.NET plugin DLLs; they depend on Paint.NET's own .NET assemblies.
   - Stylize: Edge Detect, Emboss, Halftone, Outline, Relief.
   - Dialogs are generated from each effect's parameter list: sliders, an angle dial, drop-downs, colour pickers, a centre-point pad over a thumbnail of the layer, Reseed and Reset.
   - The preview renders on a background thread, so the UI stays responsive. Cancel restores the original, and effects apply only inside the selection.

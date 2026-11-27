@@ -376,7 +376,7 @@ fn all_effects_run() {
         assert_eq!(mixed.pixel(60, 40), src.pixel(60, 40), "{}", k.name());
     }
     assert!(unchanged.is_empty(), "effects with no visible result: {unchanged:?}");
-    assert_eq!(Fx::ALL.iter().filter(|k| k.is_effect()).count(), 47);
+    assert_eq!(Fx::ALL.iter().filter(|k| k.is_effect()).count(), 59);
 }
 /// Manual benchmark: `cargo test --release -- --ignored effect_timing --nocapture`.
 #[test]
@@ -583,4 +583,124 @@ fn xor_blend_is_bitwise_like_paint_net() {
     draw_layer(&mut dst, &src, 255, LayerBlend::Xor);
     let p = dst.pixel(0, 0).unwrap();
     assert_eq!((p.red(), p.green(), p.blue(), p.alpha()), (201, 76, 78, 255));
+}
+/// Plugin-inspired effects: outline/trail only touch the transparent surroundings, the distance
+/// field is exact, seeded renders are deterministic and Random Effect always yields valid values.
+#[test]
+fn plugin_inspired_effects() {
+    use crate::fx::{random_state, Fx, FxState, V};
+    let (w, h) = (40u32, 30u32);
+    let mut src = tiny_skia::Pixmap::new(w, h).unwrap();
+    for y in 10..20 {
+        for x in 10..20 {
+            src.pixels_mut()[(y * w + x) as usize] = tiny_skia::ColorU8::from_rgba(200, 40, 40, 255).premultiply();
+        }
+    }
+    let run = |st: FxState| raster::apply_filter(&Filter::Fx(st), &src, None);
+    // Outline Object: 3 px outline in the primary colour, object unchanged, far pixels untouched
+    let out = run(FxState::new(Fx::OutlineObject, Col::BLACK, Col::WHITE));
+    assert_eq!(out.pixel(15, 15), src.pixel(15, 15));
+    let p = out.pixel(8, 15).unwrap();
+    assert_eq!((p.red(), p.alpha()), (0, 255));
+    assert_eq!(out.pixel(2, 2).unwrap().alpha(), 0);
+    // Object Trail at 0 degrees extends to the right only
+    let mut st = FxState::new(Fx::ObjectTrail, Col::BLACK, Col::WHITE);
+    st.vals[0] = V::I(10);
+    st.vals[1] = V::F(0.0);
+    let out = run(st);
+    assert!(out.pixel(25, 15).unwrap().alpha() > 200);
+    assert_eq!(out.pixel(5, 15).unwrap().alpha(), 0);
+    assert_eq!(out.pixel(25, 5).unwrap().alpha(), 0);
+    // distance field matches brute force
+    let inside: Vec<bool> = (0..w * h).map(|i| (i * 7919) % 37 == 0).collect();
+    let d = crate::fx::extras_distance_field(&inside, w as usize, h as usize);
+    for y in 0..h as usize {
+        for x in 0..w as usize {
+            let mut best = f32::MAX;
+            for (j, &on) in inside.iter().enumerate() {
+                if on {
+                    let (u, v) = ((j % w as usize) as f32 - x as f32, (j / w as usize) as f32 - y as f32);
+                    best = best.min((u * u + v * v).sqrt());
+                }
+            }
+            assert!((d[y * w as usize + x] - best).abs() < 1e-3, "({x},{y}) {} vs {best}", d[y * w as usize + x]);
+        }
+    }
+    // seeded renders are deterministic
+    let a1 = run(FxState::new(Fx::RandomShapes, Col::BLACK, Col::WHITE));
+    let a2 = run(FxState::new(Fx::RandomShapes, Col::BLACK, Col::WHITE));
+    assert_eq!(a1.data(), a2.data());
+    // random effect: every value has the right type and lies in range
+    for seed in 1..200u32 {
+        let st = random_state(Col::BLACK, Col::WHITE, seed);
+        assert!(st.kind.is_effect());
+        assert_eq!(st.vals.len(), st.kind.params().len());
+        for (p, v) in st.kind.params().iter().zip(&st.vals) {
+            match (p, v) {
+                (crate::fx::P::Int(_, lo, hi, _), V::I(x)) => assert!(x >= lo && x <= hi),
+                (crate::fx::P::Float(_, lo, hi, _), V::F(x)) => assert!(x >= lo && x <= hi),
+                (crate::fx::P::Choice(_, o, _), V::C(x)) => assert!(*x < o.len()),
+                _ => {}
+            }
+        }
+    }
+}
+/// Manual gallery: `cargo test --release -- --ignored plugin_gallery`; writes a contact sheet
+/// of the plugin-inspired effects to %TEMP%/ferrum-plugin-gallery.png.
+#[test]
+#[ignore]
+fn plugin_gallery() {
+    use crate::fx::{Fx, FxState};
+    let (w, h) = (240u32, 180u32);
+    let photo = {
+        let mut p = tiny_skia::Pixmap::new(w, h).unwrap();
+        for y in 0..h {
+            for x in 0..w {
+                let (u, v) = (x as f32 / w as f32, y as f32 / h as f32);
+                let r = (255.0 * (0.5 + 0.5 * (u * 9.0).sin())) as u8;
+                let g = (255.0 * v) as u8;
+                let b = (255.0 * (0.5 + 0.5 * ((u + v) * 6.0).cos())) as u8;
+                p.pixels_mut()[(y * w + x) as usize] = tiny_skia::ColorU8::from_rgba(r, g, b, 255).premultiply();
+            }
+        }
+        p
+    };
+    let object = {
+        let mut p = tiny_skia::Pixmap::new(w, h).unwrap();
+        let mut paint = tiny_skia::Paint::default();
+        paint.set_color_rgba8(230, 120, 30, 255);
+        paint.anti_alias = true;
+        let path = tiny_skia::PathBuilder::from_circle(150.0, 100.0, 40.0).unwrap();
+        p.fill_path(&path, &paint, tiny_skia::FillRule::Winding, tiny_skia::Transform::identity(), None);
+        p
+    };
+    let white = {
+        let mut p = tiny_skia::Pixmap::new(w, h).unwrap();
+        p.fill(tiny_skia::Color::WHITE);
+        p
+    };
+    let list = [
+        (Fx::Jitter, &photo), (Fx::Stitch, &photo), (Fx::RectPixelate, &photo), (Fx::GradientBlocks, &photo),
+        (Fx::OutlineObject, &object), (Fx::ObjectTrail, &object), (Fx::Film, &photo), (Fx::GradientMap, &photo),
+        (Fx::GradientBars, &white), (Fx::GradientGrid, &white), (Fx::BordersShapes, &white), (Fx::RandomShapes, &white),
+        (Fx::Splatter, &white),
+    ];
+    let cols = 4u32;
+    let rows = (list.len() as u32).div_ceil(cols);
+    let mut sheet = tiny_skia::Pixmap::new(cols * (w + 8) + 8, rows * (h + 8) + 8).unwrap();
+    sheet.fill(tiny_skia::Color::from_rgba8(60, 60, 60, 255));
+    for (i, (k, src)) in list.iter().enumerate() {
+        let st = FxState::new(*k, Col::rgba(20, 60, 160, 255), Col::rgba(250, 210, 60, 255));
+        let mut out = raster::apply_filter(&Filter::Fx(st), src, None);
+        if src.pixel(0, 0).unwrap().alpha() == 0 {
+            // show transparent results over a light background
+            let mut bg = white.clone();
+            bg.draw_pixmap(0, 0, out.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
+            out = bg;
+        }
+        let (cx, cy) = (8 + (i as u32 % cols) * (w + 8), 8 + (i as u32 / cols) * (h + 8));
+        sheet.draw_pixmap(cx as i32, cy as i32, out.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
+        println!("{i}: {}", k.name());
+    }
+    sheet.save_png(std::env::temp_dir().join("ferrum-plugin-gallery.png")).unwrap();
 }
