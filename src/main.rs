@@ -5,6 +5,7 @@ mod app;
 mod pdn;
 mod canvas;
 mod colors;
+mod color_match;
 mod curves_plus;
 mod dialogs;
 mod document;

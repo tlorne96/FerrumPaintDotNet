@@ -96,7 +96,7 @@ At the user's request, the MIT-licensed repositories at https://github.com/bsnee
 - Files in those repositories that carry a Paint.NET / dotPDN LLC copyright header were not used. They include `SplineInterpolator.cs`, `ColorBgraBlender.cs`, `SrgbGamma.cs`, `DiskBackedSurface.cs`, `SliderControl.cs`, and Curves+'s `ConfigDialog`, `ConfigToken`, `CurvesPlus.cs` and `CurveControl*`. Curves+ therefore uses Ferrum's own curve spline, and its dialog is Ferrum's own.
 - Gradient Mapping preset colours were converted from the source's BGR order.
 - Liquify's "Turbulence" mode is a no-op in the published source, so it was left out.
-- No pyrochild plugin DLL was decompiled. Twist and Color Match have no published source and were not done.
+- No pyrochild plugin DLL was decompiled. Twist has no published source and was not done. Color Match has none either (the bsneeze account only hosts the ten repositories above), so it was built clean-room from two published methods: per-channel histogram matching and Reinhard et al.'s Lab statistics transfer (2001).
 
 ## Clean-room effects from BoltBait's plugin pack (v0.1.4)
 The user added BoltBait's pack to the demo folder. It is freeware: https://www.boltbait.com/pdn/ offers it for free use, but publishes no source and no open licence. So nothing was decompiled or read beyond each DLL's version information. The following were written from the effect names and menu placements listed on that page, plus common knowledge of what such adjustments do:

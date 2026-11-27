@@ -170,6 +170,7 @@ fn filter_controls(ui: &mut Ui, f: &mut Filter, sel_curve: &mut Option<usize>, p
             ui.end_row();
         }
         Filter::CurvesPlus(cp) => curves_plus_controls(ui, cp, sel_curve),
+        Filter::ColorMatch(cm) => color_match_controls(ui, cm),
         _ => {
             ui.label("No options");
             ui.end_row();
@@ -339,6 +340,50 @@ fn pad_texture(ctx: &egui::Context, src: &tiny_skia::Pixmap) -> egui::TextureHan
 }
 
 /// Curves+ dialog body: mode, channel toggles (or Advanced input/output), and the curve editor.
+fn color_match_controls(ui: &mut Ui, cm: &mut crate::color_match::ColorMatch) {
+    ui.label("Reference");
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            if ui.button("From clipboard").clicked() {
+                let img = arboard::Clipboard::new().ok().and_then(|mut c| c.get_image().ok());
+                match img {
+                    Some(i) if i.width > 0 && i.height > 0 => {
+                        let p = crate::raster::pixmap_from_straight(&i.bytes, i.width as u32, i.height as u32);
+                        if !cm.set_reference(&p, "Clipboard image") {
+                            cm.label = "Clipboard image is empty".into();
+                        }
+                    }
+                    _ => cm.label = "No image on the clipboard".into(),
+                }
+            }
+            if ui.button("From file...").clicked() {
+                if let Some(path) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "bmp", "gif", "webp", "tif", "tiff", "ferrum", "pdn"]).pick_file() {
+                    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    match crate::fileio::load_flat(&path) {
+                        Ok(p) if cm.set_reference(&p, &name) => {}
+                        Ok(_) => cm.label = format!("{name} has no visible pixels"),
+                        Err(e) => cm.label = e,
+                    }
+                }
+            }
+        });
+        let shown = if cm.label.is_empty() { "Choose a reference image".to_string() } else { cm.label.clone() };
+        ui.weak(shown);
+    });
+    ui.end_row();
+    ui.label("Method");
+    egui::ComboBox::from_id_salt("cm-mode").selected_text(crate::color_match::MODES[cm.mode.min(1)]).show_ui(ui, |ui| {
+        for (i, m) in crate::color_match::MODES.iter().enumerate() {
+            ui.selectable_value(&mut cm.mode, i, *m);
+        }
+    });
+    ui.end_row();
+    int_slider(ui, "Strength", &mut cm.strength, 0, 100);
+    ui.label("");
+    ui.add_enabled(cm.mode == 1, egui::Checkbox::new(&mut cm.keep_lightness, "Keep original lightness"));
+    ui.end_row();
+}
+
 fn curves_plus_controls(ui: &mut Ui, cp: &mut crate::curves_plus::CurvesPlus, sel: &mut Option<usize>) {
     use crate::curves_plus::{CHANNELS, MODES};
     ui.label("Mode");

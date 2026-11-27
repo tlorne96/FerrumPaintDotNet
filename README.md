@@ -31,8 +31,9 @@ The one exception is a set of effects and tools ported from Zach Walker's (pyroc
   - A shape stays editable after you draw it. Drag inside it to move it or drag a handle to resize it, then press Enter (or switch tool) to finish.
 - **Layers**: add, delete, duplicate, merge down, move up or down, visibility, and properties (name, opacity, and 21 blend modes, including Paint.NET's Reflect, Glow, Negation and bitwise Xor). A full undo/redo history is kept in the History window.
 - **Image menu**: crop to selection, resize (with resampling choice), canvas size (with anchor), flip, rotate 90°/180°, flatten, and Rotate/Zoom layer.
-- **Adjustments** (18): Auto-Level, Black and White, Black and White+, Brightness/Contrast, Color Balance, Curves, Curves+, Exposure, Gradient Mapping, Highlights/Shadows, Hue/Saturation, Invert Alpha, Invert Colors, Levels, Posterize, Sepia (with intensity), Temperature and Tint, and Transparency.
+- **Adjustments** (19): Auto-Level, Black and White, Black and White+, Brightness/Contrast, Color Balance, Color Match, Curves, Curves+, Exposure, Gradient Mapping, Highlights/Shadows, Hue/Saturation, Invert Alpha, Invert Colors, Levels, Posterize, Sepia (with intensity), Temperature and Tint, and Transparency.
   - **Curves+** has Luminosity, RGB, HSV, CMYK, Alpha and Advanced modes. Advanced maps any input channel to any output channel, and the per-channel *Edit* boxes link curves together.
+  - **Color Match** recolours the layer to resemble a reference image from the clipboard or a file, by histogram matching or Lab statistics transfer (clean-room).
   - **Gradient Mapping** maps any of 12 input channels (A, R, G, B, C, M, Y, K, H, S, V, Luminosity) through a gradient, with 15 presets, an offset that can wrap, and a Lock alpha option.
 - **Effects → Tools** (interactive, in their own canvas window with brush preview, Ctrl+wheel zoom and their own undo/redo):
   - **Liquify**: Push, Bloat, Pucker, Twist left/right, Reconstruct, Freeze and Thaw, with size, pressure and density. Right-drag uses the opposite mode, and holding still keeps bloating or twisting.
@@ -171,6 +172,7 @@ ferrum-paint --write-icon icon.png 256
 | `src/raster.rs` | Pixel operations and the classic adjustments |
 | `src/fx/` | Effect registry, parameter specs and all parametric adjustments and effects (`pyrochild.rs`: MIT ports; `extras.rs`, `pack2.rs`: clean-room plugin-style effects) |
 | `src/curves_plus.rs` | Curves+ (MIT port of the pixel maths) |
+| `src/color_match.rs` | Color Match (clean-room) |
 | `src/interactive.rs` | Liquify, Grid Warp and Smudge (MIT ports) and their canvas window |
 | `src/theme.rs` | Light and dark themes, UI fonts, tool-window headers, saved preferences |
 | `src/paint.rs` | Shape, line, brush, text and gradient rasterisation (tiny-skia) |

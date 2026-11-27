@@ -150,12 +150,13 @@ impl App {
         let fx = |k: Fx| Filter::Fx(FxState::new(k, pc, sc2));
         ui.menu_button("Adjustments", |ui| {
             ui.set_min_width(SC_MENU_W);
-            let adj: [(Filter, &str); 18] = [
+            let adj: [(Filter, &str); 19] = [
                 (Filter::AutoLevel, "Ctrl+Shift+L"),
                 (Filter::BlackAndWhite, "Ctrl+Shift+G"),
                 (fx(Fx::BlackWhitePlus), ""),
                 (Filter::BrightnessContrast { brightness: 0, contrast: 0 }, "Ctrl+Shift+T"),
                 (fx(Fx::ColorBalance), ""),
+                (Filter::ColorMatch(Default::default()), ""),
                 (Filter::Curves { points: vec![(0, 0), (255, 255)], luminosity: true }, "Ctrl+Shift+M"),
                 (Filter::CurvesPlus(Default::default()), ""),
                 (fx(Fx::Exposure), ""),

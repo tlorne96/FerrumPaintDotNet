@@ -32,7 +32,7 @@ curves with Ferrum Paint's own spline code, and Liquify and Smudge use Ferrum Pa
 The other plugin-style effects (Jitter, Stitch, Rectangular Pixelate, Gradient Blocks, Outline
 Object, Film, Random Shapes, Splatter, Random Effect, Black and White+, Color Balance, Transparency,
 Dream, Pastel, Complementary Colors, Floyd-Steinberg Dithering, Switch Alpha to Gray, Switch Gray to
-Alpha, Feather Object, Bevel Object, Inner Shadow and Grid / Checkerboard) are original clean-room
+Alpha, Color Match, Feather Object, Bevel Object, Inner Shadow and Grid / Checkerboard) are original clean-room
 code. They were written from the public names and one-line descriptions of those plugins only,
 because their source is not published under an open licence. No plugin DLL was decompiled.
 

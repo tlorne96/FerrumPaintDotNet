@@ -499,6 +499,8 @@ pub enum Filter {
     Curves { points: Vec<(u8, u8)>, luminosity: bool },
     /// Curves+ (port of pyrochild's plugin): multi-mode, per-channel curves.
     CurvesPlus(Box<crate::curves_plus::CurvesPlus>),
+    /// Color Match (clean-room): match colours to a reference image.
+    ColorMatch(Box<crate::color_match::ColorMatch>),
     HueSaturation { hue: i32, saturation: i32, lightness: i32 },
     InvertAlpha,
     InvertColors,
@@ -516,6 +518,7 @@ impl Filter {
             Filter::BrightnessContrast { .. } => "Brightness / Contrast",
             Filter::Curves { .. } => "Curves",
             Filter::CurvesPlus(_) => "Curves+",
+            Filter::ColorMatch(_) => "Color Match",
             Filter::HueSaturation { .. } => "Hue / Saturation",
             Filter::InvertAlpha => "Invert Alpha",
             Filter::InvertColors => "Invert Colors",
@@ -635,6 +638,7 @@ pub fn apply_filter(f: &Filter, src: &Pixmap, mask: Option<&Mask>) -> Pixmap {
             }
             lut_map(src, &lut)
         }
+        Filter::ColorMatch(cm) => cm.apply(src, mask),
         Filter::CurvesPlus(cp) => {
             let op = cp.op();
             map_straight(src, |p| op.apply(p))
