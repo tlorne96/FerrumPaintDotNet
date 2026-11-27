@@ -1,9 +1,9 @@
 ; Ferrum Paint - Windows installer (Inno Setup 6)
-; Build:  ISCC.exe /DAppVersion=0.1.3 /DExePath=path\to\ferrum-paint.exe packaging\windows\ferrum-paint.iss
+; Build:  ISCC.exe /DAppVersion=0.1.4 /DExePath=path\to\ferrum-paint.exe packaging\windows\ferrum-paint.iss
 ; Output: dist\FerrumPaint-<version>-Setup.exe
 
 #ifndef AppVersion
-  #define AppVersion "0.1.3"
+  #define AppVersion "0.1.4"
 #endif
 #ifndef ExePath
   #define ExePath "..\..\target\release\ferrum-paint.exe"
@@ -49,6 +49,7 @@ Name: "associate"; Description: "Open .ferrum images with Ferrum Paint"; GroupDe
 [Files]
 Source: "{#ExePath}"; DestDir: "{app}"; DestName: "ferrum-paint.exe"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; DestName: "THIRD_PARTY_NOTICES.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Ferrum Paint"; Filename: "{app}\ferrum-paint.exe"

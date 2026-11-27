@@ -1,4 +1,4 @@
-﻿# Behaviour reference notes (clean-room)
+# Behaviour reference notes (clean-room)
 
 Ferrum Paint's workflow and shortcuts are modelled on the *publicly documented* behaviour of
 Paint.NET. No Paint.NET binaries, code, resources or assets were inspected, decompiled or copied.
@@ -89,5 +89,18 @@ The user supplied a folder of third-party Paint.NET plugin DLLs (pyrochild's pac
 - Random Shape Fill: https://forums.paint.net/topic/10633-random-shape-fill/ (shape modes, fill/outline colour modes, size, transparency, keep inside, antialiasing). Ours reuses Ferrum's Shapes-tool outlines.
 - Trail: https://forums.paint.net/topic/18653-trail/ (object trail, distance, angle, fading tail).
 - Film, Gradient Blocks, Gradient Bars, Gradient Grid, Gradient Mapping, Borders N' Shapes, Pixelate+, Splatter, Random Effect: one-line descriptions in the pack thread only.
-The author's GitHub repositories (https://github.com/bsneeze) were not read. Names were changed where the original was a brand (Pixelate+ -> Rectangular Pixelate, Random Shape Fill -> Random Shapes, Trail -> Object Trail, Borders N' Shapes -> Borders and Shapes, Gradient Mapping -> Gradient Map).
-Not done (interactive tools needing a canvas UI): Liquify, Grid Warp, Smudge, interactive Twist; also Curves+ and Color Match.
+Of these, Jitter, Stitch, Rectangular Pixelate (Pixelate+), Gradient Blocks, Outline Object, Film, Random Shapes (Random Shape Fill), Splatter and Random Effect remain clean-room, because those plugins have no published source.
+
+## MIT ports of pyrochild's open-source plugins (v0.1.4)
+At the user's request, the MIT-licensed repositories at https://github.com/bsneeze were then read and these plugins were ported to Rust: Borders N' Shapes, Gradient Bars, Gradient Grid, Trail, Gradient Mapping, Curves+ (pixel maths from `Histograms/UnaryPixelHistogramOps.cs` only), Smudge, Liquify and Grid Warp. The repositories, commits and copyright lines are listed in `THIRD_PARTY_NOTICES.md`, together with the MIT licence text.
+- Files in those repositories that carry a Paint.NET / dotPDN LLC copyright header were not used. They include `SplineInterpolator.cs`, `ColorBgraBlender.cs`, `SrgbGamma.cs`, `DiskBackedSurface.cs`, `SliderControl.cs`, and Curves+'s `ConfigDialog`, `ConfigToken`, `CurvesPlus.cs` and `CurveControl*`. Curves+ therefore uses Ferrum's own curve spline, and its dialog is Ferrum's own.
+- Gradient Mapping preset colours were converted from the source's BGR order.
+- Liquify's "Turbulence" mode is a no-op in the published source, so it was left out.
+- No pyrochild plugin DLL was decompiled. Twist and Color Match have no published source and were not done.
+
+## Clean-room effects from BoltBait's plugin pack (v0.1.4)
+The user added BoltBait's pack to the demo folder. It is freeware: https://www.boltbait.com/pdn/ offers it for free use, but publishes no source and no open licence. So nothing was decompiled or read beyond each DLL's version information. The following were written from the effect names and menu placements listed on that page, plus common knowledge of what such adjustments do:
+- Adjustments: Black and White+ (channel mixer with filter presets and toning), Color Balance (shadows / midtones / highlights, preserve luminosity), Transparency.
+- Artistic: Dream (screen with a blurred copy), Pastel. Color: Complementary Colors. Stylize: Floyd-Steinberg Dithering (the standard 7/3/5/1 error-diffusion kernel, Floyd & Steinberg 1976).
+- Object: Switch Alpha to Gray, Switch Gray to Alpha, Feather Object, Bevel Object, Inner Shadow (all built on the Euclidean distance transform already used by Outline Object). Render: Grid / Checkerboard.
+- Skipped because Ferrum already has an equivalent: Flip, Gaussian Blur+, Sharpen Classic, Oil Paint+, Edge Detect Classic, Drop Shadow+, Vignette+, Outline Object/Selection. Skipped for now: Charts, Calendar, Dimensions, Meme Maker, Text Fun Factory, Seam Carving, Level Horizon, Remove Dust, Fill from Clipboard/File, Paste Alpha, Apply Alpha Mask, HSV Gradients, Hue/Sat+, Flames, Polygon/Stars, Sharpen Landscape, the selection tools.

@@ -8,6 +8,8 @@ Ferrum Paint is a layered raster image editor for **Windows** and **Ubuntu 26.04
 
 Ferrum Paint is an independent clean-room implementation. Its behaviour is based only on Paint.NET's **public user documentation** (see [docs/REFERENCE_NOTES.md](docs/REFERENCE_NOTES.md) for the sources). No Paint.NET binaries were decompiled or inspected, and no code, icons, images or other assets were copied. All icons are drawn procedurally in `src/icons.rs`. Ferrum Paint is not affiliated with or endorsed by Paint.NET or dotPDN LLC.
 
+The one exception is a set of effects and tools ported from Zach Walker's (pyrochild's) **MIT-licensed** open-source Paint.NET plugins: Borders N' Shapes, Gradient Bars, Gradient Grid, Trail, Gradient Mapping, Curves+ (pixel maths only), Smudge, Liquify and Grid Warp. Their licence and the exact list of what was ported are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Files in those repositories that carry Paint.NET's own copyright were not used.
+
 ## Features
 
 - **Paint.NET-style layout**
@@ -29,17 +31,24 @@ Ferrum Paint is an independent clean-room implementation. Its behaviour is based
   - A shape stays editable after you draw it. Drag inside it to move it or drag a handle to resize it, then press Enter (or switch tool) to finish.
 - **Layers**: add, delete, duplicate, merge down, move up or down, visibility, and properties (name, opacity, and 21 blend modes, including Paint.NET's Reflect, Glow, Negation and bitwise Xor). A full undo/redo history is kept in the History window.
 - **Image menu**: crop to selection, resize (with resampling choice), canvas size (with anchor), flip, rotate 90°/180°, flatten, and Rotate/Zoom layer.
-- **Adjustments** (14): Auto-Level, Black and White, Brightness/Contrast, Curves, Exposure, Gradient Map, Highlights/Shadows, Hue/Saturation, Invert Alpha, Invert Colors, Levels, Posterize, Sepia (with intensity), and Temperature and Tint.
-- **Effects** (59, in the same submenus as Paint.NET, plus **Effects → Random Effect**):
-  - Artistic: Ink Sketch, Linocut, Mosaic, Oil Painting, Pencil Sketch, Pointillism, Splatter, Stained Glass.
+- **Adjustments** (18): Auto-Level, Black and White, Black and White+, Brightness/Contrast, Color Balance, Curves, Curves+, Exposure, Gradient Mapping, Highlights/Shadows, Hue/Saturation, Invert Alpha, Invert Colors, Levels, Posterize, Sepia (with intensity), Temperature and Tint, and Transparency.
+  - **Curves+** has Luminosity, RGB, HSV, CMYK, Alpha and Advanced modes. Advanced maps any input channel to any output channel, and the per-channel *Edit* boxes link curves together.
+  - **Gradient Mapping** maps any of 12 input channels (A, R, G, B, C, M, Y, K, H, S, V, Luminosity) through a gradient, with 15 presets, an offset that can wrap, and a Lock alpha option.
+- **Effects → Tools** (interactive, in their own canvas window with brush preview, Ctrl+wheel zoom and their own undo/redo):
+  - **Liquify**: Push, Bloat, Pucker, Twist left/right, Reconstruct, Freeze and Thaw, with size, pressure and density. Right-drag uses the opposite mode, and holding still keeps bloating or twisting.
+  - **Grid Warp**: drag the handles of an adjustable grid (1–100 cells each way) to warp the image.
+  - **Smudge**: soft or hard brush with size, strength, jitter and quality.
+- **Effects** (69, in the same submenus as Paint.NET, plus **Effects → Random Effect**):
+  - Artistic: Dream, Ink Sketch, Linocut, Mosaic, Oil Painting, Pastel, Pencil Sketch, Pointillism, Splatter, Stained Glass.
   - Blurs: Bokeh, Fragment, Gaussian, Gradient Blocks, Median, Motion, Radial, Sketch, Square, Surface, Zoom.
-  - Color: Quantize (median cut or octree, with dithering).
+  - Color: Complementary Colors, Quantize (median cut or octree, with dithering).
   - Distort: Bulge, Crystalize, Dents, Frosted Glass, Jitter, Morphology, Pixelate, Polar Inversion, Rectangular Pixelate, Spherize, Stitch, Tile Reflection, Twist, Waves.
-  - Noise: Add Noise, Reduce Noise. Object: Drop Shadow, Object Trail, Outline Object.
+  - Noise: Add Noise, Reduce Noise.
+  - Object: Bevel Object, Drop Shadow, Feather Object, Inner Shadow, Outline Object, Switch Alpha to Gray, Switch Gray to Alpha, Trail.
   - Photo: Film, Glow, Red Eye Removal, Sharpen, Soften Portrait, Straighten, Vignette.
-  - Render: Borders and Shapes, Clouds, Gradient Bars, Gradient Grid, Julia Fractal, Mandelbrot Fractal, Random Shapes, Turbulence (with blend modes).
-  - Gradient Map, Splatter, Gradient Blocks, Jitter, Rectangular Pixelate, Stitch, Object Trail, Outline Object, Film, Borders and Shapes, Gradient Bars, Gradient Grid, Random Shapes and Random Effect are native, clean-room takes on popular third-party Paint.NET plugins (pyrochild's pack), written from the plugins' public one-line descriptions. Ferrum Paint can't load Paint.NET plugin DLLs; they depend on Paint.NET's own .NET assemblies.
-  - Stylize: Edge Detect, Emboss, Halftone, Outline, Relief.
+  - Render: Borders N' Shapes, Clouds, Gradient Bars, Gradient Grid, Grid / Checkerboard, Julia Fractal, Mandelbrot Fractal, Random Shapes, Turbulence (with blend modes).
+  - Stylize: Edge Detect, Emboss, Floyd-Steinberg Dithering, Halftone, Outline, Relief.
+  - **Popular plugins, built in.** Ferrum Paint can't load Paint.NET plugin DLLs, because they depend on Paint.NET's own .NET assemblies and Windows-only UI code. Instead, popular plugins are built in natively. Borders N' Shapes, Gradient Bars, Gradient Grid, Trail, Gradient Mapping, Curves+, Liquify, Grid Warp and Smudge are ports of pyrochild's MIT-licensed source. Splatter, Gradient Blocks, Jitter, Rectangular Pixelate, Stitch, Outline Object, Film, Random Shapes and Random Effect are clean-room versions of the rest of pyrochild's pack. Black and White+, Color Balance, Transparency, Dream, Pastel, Complementary Colors, Floyd-Steinberg Dithering, the alpha/gray switches, Feather Object, Bevel Object, Inner Shadow and Grid / Checkerboard are clean-room versions of effects from BoltBait's pack. The clean-room ones were written from each plugin's public name and one-line description, because that source isn't openly licensed.
   - Dialogs are generated from each effect's parameter list: sliders, an angle dial, drop-downs, colour pickers, a centre-point pad over a thumbnail of the layer, Reseed and Reset.
   - The preview renders on a background thread, so the UI stays responsive. Cancel restores the original, and effects apply only inside the selection.
   - Ctrl+F repeats the last effect with the same settings.
@@ -160,7 +169,9 @@ ferrum-paint --write-icon icon.png 256
 | `src/canvas.rs` | Canvas view, tool input state machine, live previews |
 | `src/document.rs` | Layers, documents, undo history |
 | `src/raster.rs` | Pixel operations and the classic adjustments |
-| `src/fx/` | Effect registry, parameter specs and all parametric adjustments and effects |
+| `src/fx/` | Effect registry, parameter specs and all parametric adjustments and effects (`pyrochild.rs`: MIT ports; `extras.rs`, `pack2.rs`: clean-room plugin-style effects) |
+| `src/curves_plus.rs` | Curves+ (MIT port of the pixel maths) |
+| `src/interactive.rs` | Liquify, Grid Warp and Smudge (MIT ports) and their canvas window |
 | `src/theme.rs` | Light and dark themes, UI fonts, tool-window headers, saved preferences |
 | `src/paint.rs` | Shape, line, brush, text and gradient rasterisation (tiny-skia) |
 | `src/dialogs.rs` | Modal dialogs and the shortcut table |
@@ -172,13 +183,13 @@ ferrum-paint --write-icon icon.png 256
 
 ## Known limitations
 
-- There is no printing and no plugin system. Paint.NET 6.0's new `.pdn` format isn't supported yet, and saved `.pdn` files carry no EXIF metadata.
+- There is no printing and no plugin system (Paint.NET plugin DLLs can't be loaded). Paint.NET 6.0's new `.pdn` format isn't supported yet, and saved `.pdn` files carry no EXIF metadata.
 - The installers are not code-signed, so Windows SmartScreen will warn the first time you run `Setup.exe`.
-- Effects follow Paint.NET's names, menus and controls, but the algorithms are original, so results will not be pixel-identical. Mosaic offers 7 tile shapes rather than Paint.NET's 21. Fractal colouring uses our own palette.
+- Effects follow Paint.NET's names, menus and controls, but the algorithms are original (apart from the MIT ports listed above), so results will not be pixel-identical. Mosaic offers 7 tile shapes rather than Paint.NET's 21. Fractal colouring uses our own palette.
 - Effect previews of heavy effects on very large images take a second or two to appear.
 - The Text tool uses the two fonts bundled with egui. It does not use system fonts.
 - The Ubuntu 26.04 build has not been tested on real hardware. Development and testing were done on Windows, and the Linux code paths rely on the platform layers of winit, arboard and rfd.
 
 ## Licence
 
-Copyright (c) 2026 Tim Lorne. Released under the MIT licence; see [LICENSE](LICENSE).
+Copyright (c) 2026 Tim Lorne. Released under the MIT licence; see [LICENSE](LICENSE). Ported third-party code keeps its own MIT notice; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

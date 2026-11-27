@@ -9,7 +9,9 @@ mod artistic;
 mod blurs;
 mod distort;
 mod extras;
+mod pack2;
 mod photo;
+mod pyrochild;
 mod render;
 mod stylize;
 
@@ -173,16 +175,21 @@ macro_rules! effects {
 }
 
 effects! {
+    BlackWhitePlus => "Black and White+", Adjustments;
+    ColorBalance => "Color Balance", Adjustments;
     Exposure => "Exposure", Adjustments;
-    GradientMap => "Gradient Map", Adjustments;
+    GradientMap => "Gradient Mapping", Adjustments;
     HighlightsShadows => "Highlights / Shadows", Adjustments;
     Sepia => "Sepia", Adjustments;
     TemperatureTint => "Temperature and Tint", Adjustments;
+    Transparency => "Transparency", Adjustments;
+    Dream => "Dream", Artistic;
 
     InkSketch => "Ink Sketch", Artistic;
     Linocut => "Linocut", Artistic;
     Mosaic => "Mosaic", Artistic;
     OilPainting => "Oil Painting", Artistic;
+    Pastel => "Pastel", Artistic;
     PencilSketch => "Pencil Sketch", Artistic;
     Pointillism => "Pointillism", Artistic;
     Splatter => "Splatter", Artistic;
@@ -200,6 +207,7 @@ effects! {
     SurfaceBlur => "Surface Blur", Blurs;
     ZoomBlur => "Zoom Blur", Blurs;
 
+    ComplementaryColors => "Complementary Colors", Color;
     Quantize => "Quantize", Color;
 
     Bulge => "Bulge", Distort;
@@ -220,9 +228,14 @@ effects! {
     AddNoise => "Add Noise", Noise;
     ReduceNoise => "Reduce Noise", Noise;
 
+    BevelObject => "Bevel Object", Object;
     DropShadow => "Drop Shadow", Object;
-    ObjectTrail => "Object Trail", Object;
+    FeatherObject => "Feather Object", Object;
+    InnerShadow => "Inner Shadow", Object;
+    ObjectTrail => "Trail", Object;
     OutlineObject => "Outline Object", Object;
+    AlphaToGray => "Switch Alpha to Gray", Object;
+    GrayToAlpha => "Switch Gray to Alpha", Object;
 
     Film => "Film", Photo;
     Glow => "Glow", Photo;
@@ -232,10 +245,11 @@ effects! {
     Straighten => "Straighten", Photo;
     Vignette => "Vignette", Photo;
 
-    BordersShapes => "Borders and Shapes", Render;
+    BordersShapes => "Borders N' Shapes", Render;
     Clouds => "Clouds", Render;
     GradientBars => "Gradient Bars", Render;
     GradientGrid => "Gradient Grid", Render;
+    GridCheckerboard => "Grid / Checkerboard", Render;
     JuliaFractal => "Julia Fractal", Render;
     MandelbrotFractal => "Mandelbrot Fractal", Render;
     RandomShapes => "Random Shapes", Render;
@@ -243,6 +257,7 @@ effects! {
 
     EdgeDetect => "Edge Detect", Stylize;
     Emboss => "Emboss", Stylize;
+    Dithering => "Floyd-Steinberg Dithering", Stylize;
     Halftone => "Halftone", Stylize;
     Outline => "Outline", Stylize;
     Relief => "Relief", Stylize;
@@ -264,9 +279,11 @@ impl Fx {
         match self {
             Fx::Exposure => vec![Float("Exposure", -5.0, 5.0, 0.0)],
             Fx::GradientMap => vec![
-                Choice("Gradient", extras::GRADIENTS, 0),
-                Bool("Reverse", false),
-                Int("Strength", 0, 100, 100),
+                Choice("Preset", pyrochild::GM_PRESETS, 0),
+                Choice("Input channel", pyrochild::GM_CHANNELS, 11),
+                Int("Offset", -255, 255, 0),
+                Bool("Wrap offset", true),
+                Bool("Lock alpha", false),
                 Color("Color 1", ColDef::Primary),
                 Color("Color 2", ColDef::Secondary),
             ],
@@ -391,7 +408,7 @@ impl Fx {
                 Color("Color", ColDef::Rgba(0, 0, 0, 255)),
                 Bool("Only draw shadow", false),
             ],
-            Fx::ObjectTrail => vec![Int("Distance", 1, 500, 40), Angle("Angle", 135.0), Int("Fade", 0, 100, 20), Int("Opacity", 0, 100, 100)],
+            Fx::ObjectTrail => vec![Int("Distance", 1, 500, 25), Int("Spacing", 1, 100, 1), Angle("Direction", 0.0), Bool("Fade out", true), Bool("High quality", true)],
             Fx::OutlineObject => vec![Int("Width", 1, 200, 3), Int("Softness", 0, 100, 0), Color("Color", ColDef::Primary), Bool("Outline only", false)],
 
             Fx::Film => vec![
@@ -412,36 +429,45 @@ impl Fx {
             Fx::Vignette => vec![Point("Center"), Float("Radius", 0.1, 4.0, 1.0), Float("Strength", 0.0, 1.0, 1.0)],
 
             Fx::BordersShapes => vec![
-                Choice("Shape", extras::BORDER_SHAPES, 0),
-                Choice("Line style", extras::LINE_STYLES, 0),
-                Int("Line width", 1, 200, 4),
-                Int("Margin", 0, 1000, 0),
-                Angle("Start angle", 0.0),
-                Float("Sweep angle", 1.0, 360.0, 270.0),
-                Bool("Fill", false),
+                Choice("Shape", pyrochild::BNS_SHAPES, 0),
+                Int("Width", 1, 100, 2),
+                Color("Color", ColDef::Primary),
                 Bool("Antialiasing", true),
-                Color("Line color", ColDef::Primary),
-                Color("Fill color", ColDef::Secondary),
+                Choice("Pattern", pyrochild::BNS_PATTERNS, 0),
+                Choice("Pattern caps", pyrochild::BNS_DASH_CAPS, 0),
+                Float("Spacing", 0.0, 10.0, 1.0),
+                Float("Start angle", 0.0, 360.0, 0.0),
+                Float("End angle", 0.0, 360.0, 90.0),
+                Choice("Line caps (arc)", pyrochild::BNS_LINE_CAPS, 0),
             ],
             Fx::Clouds => vec![Int("Scale", 2, 1000, 250), Float("Roughness", 0.0, 1.0, 0.5), Choice("Blend mode", BLEND, 0), Seed, Color("Color 1", ColDef::Primary), Color("Color 2", ColDef::Secondary)],
             Fx::GradientBars => vec![
-                Int("Bar width", 2, 1000, 40),
-                Angle("Angle", 0.0),
-                Choice("Style", extras::BAR_STYLES, 1),
-                Choice("Colors", extras::BAR_COLORS, 0),
-                Choice("Blend mode", BLEND, 0),
                 Color("Color 1", ColDef::Primary),
                 Color("Color 2", ColDef::Secondary),
+                Bool("Gamma-adjusted color blend", false),
+                Int("Width", 1, 100, 1),
+                Int("Spacing", 0, 100, 0),
+                Float("Angle", 0.0, 360.0, 90.0),
+                Float("Skew", -45.0, 45.0, 0.0),
+                Float("Scale", 0.01, 10.0, 1.0),
+                Float("Alignment", 0.0, 1.0, 0.0),
+                Choice("Repetition", pyrochild::GB_REPEAT, 0),
+                Bool("Anti-alias", true),
                 Seed,
             ],
             Fx::GradientGrid => vec![
-                Int("Cell width", 2, 1000, 50),
-                Int("Cell height", 2, 1000, 50),
-                Choice("Pattern", extras::GRID_PATTERNS, 0),
-                Bool("Checkerboard flip", true),
-                Choice("Blend mode", BLEND, 0),
+                Int("Size", 2, 1000, 100),
+                Choice("Gradient type", pyrochild::GG_TYPES, 0),
+                Float("Range start", 0.0, 1.0, 0.0),
+                Float("Range end", 0.0, 1.0, 1.0),
+                Bool("Reflected", false),
                 Color("Color 1", ColDef::Primary),
                 Color("Color 2", ColDef::Secondary),
+                Bool("Gamma-adjusted color blend", false),
+                Float("Offset X", -1.0, 1.0, 0.0),
+                Float("Offset Y", -1.0, 1.0, 0.0),
+                Bool("Lines", false),
+                Color("Line color", ColDef::Primary),
             ],
             Fx::JuliaFractal => vec![Float("Factor", 1.0, 10.0, 4.0), Float("Zoom", 0.1, 50.0, 1.0), Angle("Angle", 0.0), Int("Quality", 1, 5, 2), Choice("Blend mode", BLEND, 0)],
             Fx::MandelbrotFractal => vec![Float("Factor", 1.0, 10.0, 1.0), Float("Zoom", 0.1, 100.0, 1.0), Angle("Angle", 0.0), Int("Quality", 1, 5, 2), Bool("Invert colors", false), Choice("Blend mode", BLEND, 0)],
@@ -476,6 +502,54 @@ impl Fx {
             ],
             Fx::Outline => vec![Int("Thickness", 1, 200, 3), Int("Intensity", 0, 100, 50)],
             Fx::Relief => vec![Angle("Angle", 45.0)],
+
+            Fx::BlackWhitePlus => vec![
+                Choice("Filter", pack2::BW_FILTERS, 0),
+                Int("Red", -200, 300, 30),
+                Int("Green", -200, 300, 59),
+                Int("Blue", -200, 300, 11),
+                Int("Brightness", -100, 100, 0),
+                Int("Contrast", -100, 100, 0),
+                Choice("Tone", pack2::BW_TONES, 0),
+                Int("Tone strength", 0, 100, 60),
+            ],
+            Fx::ColorBalance => vec![
+                Int("Shadows: cyan / red", -100, 100, 0),
+                Int("Shadows: magenta / green", -100, 100, 0),
+                Int("Shadows: yellow / blue", -100, 100, 0),
+                Int("Midtones: cyan / red", -100, 100, 0),
+                Int("Midtones: magenta / green", -100, 100, 0),
+                Int("Midtones: yellow / blue", -100, 100, 0),
+                Int("Highlights: cyan / red", -100, 100, 0),
+                Int("Highlights: magenta / green", -100, 100, 0),
+                Int("Highlights: yellow / blue", -100, 100, 0),
+                Bool("Preserve luminosity", true),
+            ],
+            Fx::Transparency => vec![Choice("Mode", pack2::OPACITY_MODES, 0), Int("Opacity", 0, 100, 50)],
+            Fx::Dream => vec![Int("Focus", 1, 100, 12), Int("Glow", 0, 100, 70), Int("Saturation", 0, 200, 115), Int("Brightness", -50, 50, 0)],
+            Fx::Pastel => vec![Int("Softness", 0, 20, 2), Int("Lightness", 0, 100, 35), Int("Levels", 2, 32, 8), Int("Saturation", 0, 200, 80)],
+            Fx::ComplementaryColors => vec![Choice("Method", pack2::COMPLEMENT, 0), Int("Amount", 0, 100, 100)],
+            Fx::Dithering => vec![
+                Choice("Palette", pack2::DITHER_PALETTES, 0),
+                Bool("Serpentine scan", true),
+                Int("Error diffusion", 0, 100, 100),
+                Color("Color 1", ColDef::Primary),
+                Color("Color 2", ColDef::Secondary),
+            ],
+            Fx::AlphaToGray => vec![Bool("Invert", false)],
+            Fx::GrayToAlpha => vec![Bool("Invert", false), Choice("Color", pack2::G2A_COLORS, 1), Color("Custom color", ColDef::Primary)],
+            Fx::FeatherObject => vec![Int("Radius", 1, 100, 6)],
+            Fx::BevelObject => vec![Int("Depth", 1, 100, 10), Angle("Light angle", 135.0), Int("Strength", 0, 100, 60)],
+            Fx::InnerShadow => vec![Int("Width", 1, 200, 10), Angle("Angle", 135.0), Int("Distance", 0, 100, 4), Int("Opacity", 0, 100, 70), Color("Color", ColDef::Rgba(0, 0, 0, 255))],
+            Fx::GridCheckerboard => vec![
+                Choice("Type", pack2::GRID_TYPES, 0),
+                Int("Cell width", 2, 2000, 32),
+                Int("Cell height", 2, 2000, 32),
+                Int("Line width", 1, 100, 1),
+                Color("Color 1", ColDef::Primary),
+                Color("Color 2", ColDef::Secondary),
+                Bool("Keep image under grid", false),
+            ],
         }
     }
 }
@@ -565,14 +639,23 @@ pub fn apply(st: &FxState, src: &Pixmap, mask: Option<&Mask>) -> Pixmap {
         | Fx::RectPixelate
         | Fx::GradientBlocks
         | Fx::OutlineObject
-        | Fx::ObjectTrail
         | Fx::Film
-        | Fx::GradientMap
-        | Fx::GradientBars
-        | Fx::GradientGrid
-        | Fx::BordersShapes
         | Fx::RandomShapes
         | Fx::Splatter => extras::apply(st.kind, &a, &b, bx),
+        Fx::BordersShapes | Fx::GradientBars | Fx::GradientGrid | Fx::ObjectTrail | Fx::GradientMap => pyrochild::apply(st.kind, &a, &b, bx),
+        Fx::BlackWhitePlus
+        | Fx::ColorBalance
+        | Fx::Transparency
+        | Fx::Dream
+        | Fx::Pastel
+        | Fx::ComplementaryColors
+        | Fx::Dithering
+        | Fx::AlphaToGray
+        | Fx::GrayToAlpha
+        | Fx::FeatherObject
+        | Fx::BevelObject
+        | Fx::InnerShadow
+        | Fx::GridCheckerboard => pack2::apply(st.kind, &a, &b, bx),
     };
     out.to_pixmap()
 }

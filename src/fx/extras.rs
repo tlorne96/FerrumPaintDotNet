@@ -1,14 +1,14 @@
 //! Extra effects inspired by the one-line public descriptions of a popular third-party Paint.NET
 //! plugin pack (see docs/REFERENCE_NOTES.md, "Plugin-inspired effects"). The algorithms are
-//! original; no plugin binaries were decompiled and no plugin source code was read.
+//! original; no plugin binaries were decompiled, and these plugins have no published source.
 //!
-//! Jitter, Stitch, Rectangular Pixelate, Gradient Blocks, Outline Object, Object Trail, Film,
-//! Gradient Map, Gradient Bars, Gradient Grid, Borders and Shapes, Random Shapes, Splatter.
+//! Jitter, Stitch, Rectangular Pixelate, Gradient Blocks, Outline Object, Film, Random Shapes,
+//! Splatter. (Ports of the MIT-licensed plugins live in pyrochild.rs.)
 
 use super::*;
-use crate::tools::{DashStyle, ShapeKind};
+use crate::tools::ShapeKind;
 use std::f32::consts::{PI, TAU};
-use tiny_skia::{FillRule, LineCap, LineJoin, Paint, PathBuilder, Stroke, StrokeDash, Transform};
+use tiny_skia::{FillRule, LineCap, LineJoin, Paint, PathBuilder, Stroke, Transform};
 
 pub const SHAPES: &[&str] = &[
     "Random", "Rectangle", "Rounded Rectangle", "Ellipse", "Triangle", "Right Triangle", "Diamond", "Pentagon", "Hexagon", "Octagon", "Star",
@@ -16,12 +16,6 @@ pub const SHAPES: &[&str] = &[
 ];
 pub const COLOR_MODES: &[&str] =
     &["None", "Primary", "Secondary", "Primary / secondary mix", "Random hue", "Random color", "Random gray", "Sampled from image"];
-pub const GRADIENTS: &[&str] = &["Color 1 to Color 2", "Black, Color 1, White", "Fire", "Ice", "Infrared", "Sepia tone", "Rainbow"];
-pub const BORDER_SHAPES: &[&str] = &["Rectangle", "Ellipse", "Arc", "Pie"];
-pub const LINE_STYLES: &[&str] = &["Solid", "Dashed", "Dotted", "Dash-dot"];
-pub const BAR_STYLES: &[&str] = &["Sawtooth", "Mirrored", "Smooth"];
-pub const BAR_COLORS: &[&str] = &["Color 1 to Color 2", "Random hues", "Random mixes of Color 1 and 2"];
-pub const GRID_PATTERNS: &[&str] = &["Horizontal", "Vertical", "Diagonal", "Radial", "Diamond", "Square"];
 pub const SPLAT_COLORS: &[&str] = &["Color 1", "Color 2", "Mix of Color 1 and 2", "Random hues"];
 pub const LETTERBOX: &[&str] = &["None", "1.85 : 1", "2.39 : 1"];
 
@@ -32,12 +26,7 @@ pub fn apply(kind: Fx, a: &A, b: &Buf, bx: Bx) -> Buf {
         Fx::RectPixelate => rect_pixelate(a, b, bx),
         Fx::GradientBlocks => gradient_blocks(a, b, bx),
         Fx::OutlineObject => outline_object(a, b),
-        Fx::ObjectTrail => trail(a, b),
         Fx::Film => film(a, b, bx),
-        Fx::GradientMap => gradient_map(a, b),
-        Fx::GradientBars => gradient_bars(a, b, bx),
-        Fx::GradientGrid => gradient_grid(a, b, bx),
-        Fx::BordersShapes => borders(a, b, bx),
         Fx::RandomShapes => random_shapes(a, b, bx),
         Fx::Splatter => splatter(a, b, bx),
         _ => b.clone(),
@@ -320,29 +309,6 @@ fn outline_object(a: &A, b: &Buf) -> Buf {
     })
 }
 
-/// Copies of the object stretch out behind it in one direction, fading over the far end.
-fn trail(a: &A, b: &Buf) -> Buf {
-    let dist = a.i(0).max(1);
-    let (dx, dy) = dir(a.f(1));
-    let fade = a.f(2) / 100.0;
-    let opacity = a.f(3) / 100.0;
-    let d_max = dist as f32;
-    let f_start = d_max * (1.0 - fade);
-    par_map(b.w, b.h, |x, y| {
-        let mut o = b.get(x, y);
-        for d in 1..=dist {
-            if o[3] >= 0.999 {
-                break;
-            }
-            let df = d as f32;
-            let w = opacity * if df > f_start { ((d_max - df + 1.0) / (d_max - f_start + 1.0)).clamp(0.0, 1.0) } else { 1.0 };
-            let s = b.sample(x as f32 - df * dx, y as f32 - df * dy, Edge::Transparent);
-            let k = (1.0 - o[3]) * w;
-            add4(&mut o, s, k);
-        }
-        o
-    })
-}
 
 // ----------------------------------------------------------------------------------------------
 // Photo
@@ -387,171 +353,11 @@ fn film(a: &A, b: &Buf, bx: Bx) -> Buf {
 }
 
 // ----------------------------------------------------------------------------------------------
-// Adjustments
-
-fn gradient_stops(kind: usize, c1: Px, c2: Px) -> Vec<[f32; 3]> {
-    let c = |p: Px| [p[0], p[1], p[2]];
-    match kind {
-        0 => vec![c(c1), c(c2)],
-        1 => vec![[0.0; 3], c(c1), [1.0; 3]],
-        2 => vec![[0.0, 0.0, 0.0], [0.5, 0.0, 0.02], [0.9, 0.3, 0.0], [1.0, 0.8, 0.1], [1.0, 1.0, 0.9]],
-        3 => vec![[0.0, 0.0, 0.1], [0.0, 0.3, 0.6], [0.4, 0.8, 1.0], [1.0, 1.0, 1.0]],
-        4 => vec![[0.0, 0.0, 0.0], [0.3, 0.0, 0.6], [0.9, 0.0, 0.3], [1.0, 0.6, 0.0], [1.0, 1.0, 0.6]],
-        5 => vec![[0.1, 0.05, 0.0], [0.44, 0.26, 0.08], [0.8, 0.65, 0.45], [1.0, 0.97, 0.9]],
-        _ => (0..7).map(|i| hsv_to_rgb(i as f32 * 50.0, 0.9, 1.0)).collect(),
-    }
-}
-
-fn eval_stops(s: &[[f32; 3]], t: f32) -> [f32; 3] {
-    let n = s.len() - 1;
-    let f = t.clamp(0.0, 1.0) * n as f32;
-    let i = (f.floor() as usize).min(n.saturating_sub(1));
-    let u = f - i as f32;
-    let (p, q) = (s[i], s[(i + 1).min(n)]);
-    [p[0] + (q[0] - p[0]) * u, p[1] + (q[1] - p[1]) * u, p[2] + (q[2] - p[2]) * u]
-}
-
-/// Recolour by brightness through a multi-stop gradient.
-fn gradient_map(a: &A, b: &Buf) -> Buf {
-    let stops = gradient_stops(a.c(0), col_px(a.col(3)), col_px(a.col(4)));
-    let rev = a.b(1);
-    let k = a.f(2) / 100.0;
-    map_st(b, |p| {
-        let l = luma(p);
-        let g = eval_stops(&stops, if rev { 1.0 - l } else { l });
-        [p[0] + (g[0] - p[0]) * k, p[1] + (g[1] - p[1]) * k, p[2] + (g[2] - p[2]) * k, p[3]]
-    })
-}
-
-// ----------------------------------------------------------------------------------------------
 // Render
 
-fn gradient_bars(a: &A, b: &Buf, bx: Bx) -> Buf {
-    let w = a.f(0).max(2.0);
-    let (dx, dy) = dir(a.f(1));
-    let style = a.c(2);
-    let cmode = a.c(3);
-    let mode = a.c(4);
-    let (c1, c2) = (col_px(a.col(5)), col_px(a.col(6)));
-    let seed = a.seed(7);
-    let (x0, y0) = (bx.x0, bx.y0);
-    par_map(b.w, b.h, |x, y| {
-        let u = (x as f32 + 0.5 - x0) * dx + (y as f32 + 0.5 - y0) * dy;
-        let k = (u / w).floor() as i32;
-        let f = u / w - k as f32;
-        let t = match style {
-            0 => f,
-            1 => 1.0 - (2.0 * f - 1.0).abs(),
-            _ => smooth(1.0 - (2.0 * f - 1.0).abs()),
-        };
-        let (ca, cb) = match cmode {
-            1 => {
-                let h = rnd(k, 1, seed) * 360.0;
-                let p = hsv_to_rgb(h, 0.85, 1.0);
-                let q = hsv_to_rgb(h + 40.0 + rnd(k, 2, seed) * 80.0, 0.85, 0.45);
-                ([q[0], q[1], q[2], 1.0], [p[0], p[1], p[2], 1.0])
-            }
-            2 => (lerp4(c1, c2, rnd(k, 1, seed)), lerp4(c1, c2, rnd(k, 2, seed))),
-            _ => (c1, c2),
-        };
-        pm(blend(mode, st(b.get(x, y)), lerp4(ca, cb, t)))
-    })
-}
 
-fn gradient_grid(a: &A, b: &Buf, bx: Bx) -> Buf {
-    let (cw, ch) = (a.f(0).max(2.0), a.f(1).max(2.0));
-    let pat = a.c(2);
-    let checker = a.b(3);
-    let mode = a.c(4);
-    let (c1, c2) = (col_px(a.col(5)), col_px(a.col(6)));
-    par_map(b.w, b.h, |x, y| {
-        let (u, v) = ((x as f32 + 0.5 - bx.x0) / cw, (y as f32 + 0.5 - bx.y0) / ch);
-        let (i, j) = (u.floor() as i32, v.floor() as i32);
-        let (lx, ly) = (u - i as f32, v - j as f32);
-        let (ax, ay) = ((lx - 0.5).abs() * 2.0, (ly - 0.5).abs() * 2.0);
-        let mut t = match pat {
-            0 => lx,
-            1 => ly,
-            2 => (lx + ly) * 0.5,
-            3 => (ax * ax + ay * ay).sqrt().min(1.0),
-            4 => ((ax + ay) * 0.5).min(1.0),
-            _ => ax.max(ay),
-        };
-        if checker && (i + j).rem_euclid(2) == 1 {
-            t = 1.0 - t;
-        }
-        pm(blend(mode, st(b.get(x, y)), lerp4(c1, c2, t)))
-    })
-}
 
-fn ellipse_arc(pb: &mut PathBuilder, cx: f32, cy: f32, rx: f32, ry: f32, start: f32, sweep: f32, first_move: bool) {
-    let n = ((sweep.abs() / 360.0) * 180.0).ceil().max(8.0) as i32;
-    for i in 0..=n {
-        let t = (start + sweep * i as f32 / n as f32).to_radians();
-        let (px, py) = (cx + rx * t.cos(), cy - ry * t.sin());
-        if i == 0 && first_move {
-            pb.move_to(px, py);
-        } else {
-            pb.line_to(px, py);
-        }
-    }
-}
 
-/// Rectangles, ellipses, arcs and pies fitted to the selection, with dash styles.
-fn borders(a: &A, b: &Buf, bx: Bx) -> Buf {
-    let shape = a.c(0);
-    let dash = [DashStyle::Solid, DashStyle::Dash, DashStyle::Dot, DashStyle::DashDot][a.c(1).min(3)];
-    let lw = a.f(2).max(1.0);
-    let inset = a.f(3) + lw * 0.5;
-    let (start, sweep) = (a.f(4), a.f(5));
-    let fill = a.b(6);
-    let aa = a.b(7);
-    let (lc, fc) = (a.col(8).skia(), a.col(9).skia());
-    let (x0, y0, x1, y1) = (bx.x0 + inset, bx.y0 + inset, bx.x1 - inset, bx.y1 - inset);
-    let mut pm_ = b.to_pixmap();
-    if x1 - x0 < 1.0 || y1 - y0 < 1.0 {
-        return b.clone();
-    }
-    let (cx, cy, rx, ry) = ((x0 + x1) * 0.5, (y0 + y1) * 0.5, (x1 - x0) * 0.5, (y1 - y0) * 0.5);
-    let mut pb = PathBuilder::new();
-    match shape {
-        0 => {
-            if let Some(r) = tiny_skia::Rect::from_ltrb(x0, y0, x1, y1) {
-                pb.push_rect(r);
-            }
-        }
-        1 => {
-            if let Some(r) = tiny_skia::Rect::from_ltrb(x0, y0, x1, y1) {
-                pb.push_oval(r);
-            }
-        }
-        2 => ellipse_arc(&mut pb, cx, cy, rx, ry, start, sweep, true),
-        _ => {
-            pb.move_to(cx, cy);
-            ellipse_arc(&mut pb, cx, cy, rx, ry, start, sweep, false);
-            pb.close();
-        }
-    }
-    let Some(path) = pb.finish() else { return b.clone() };
-    if fill {
-        pm_.fill_path(&path, &solid(fc, aa), FillRule::Winding, Transform::identity(), None);
-    }
-    let mut s = Stroke {
-        width: lw,
-        line_join: if shape == 0 { LineJoin::Miter } else { LineJoin::Round },
-        line_cap: if dash == DashStyle::Dot { LineCap::Round } else { LineCap::Butt },
-        ..Default::default()
-    };
-    if let Some(mut pat) = dash.pattern(lw) {
-        if dash == DashStyle::Dot {
-            // round caps turn very short dashes into dots
-            pat = vec![0.01, lw * 2.0];
-        }
-        s.dash = StrokeDash::new(pat, 0.0);
-    }
-    pm_.stroke_path(&path, &solid(lc, aa), &s, Transform::identity(), None);
-    Buf::from_pixmap(&pm_)
-}
 
 /// Colour for a random item according to one of COLOR_MODES; None means "don't draw".
 fn pick_color(mode: usize, i: i32, salt: i32, seed: u32, c1: Px, c2: Px, b: &Buf, at: (f32, f32)) -> Option<Px> {

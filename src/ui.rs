@@ -150,11 +150,14 @@ impl App {
         let fx = |k: Fx| Filter::Fx(FxState::new(k, pc, sc2));
         ui.menu_button("Adjustments", |ui| {
             ui.set_min_width(SC_MENU_W);
-            let adj: [(Filter, &str); 14] = [
+            let adj: [(Filter, &str); 18] = [
                 (Filter::AutoLevel, "Ctrl+Shift+L"),
                 (Filter::BlackAndWhite, "Ctrl+Shift+G"),
+                (fx(Fx::BlackWhitePlus), ""),
                 (Filter::BrightnessContrast { brightness: 0, contrast: 0 }, "Ctrl+Shift+T"),
+                (fx(Fx::ColorBalance), ""),
                 (Filter::Curves { points: vec![(0, 0), (255, 255)], luminosity: true }, "Ctrl+Shift+M"),
+                (Filter::CurvesPlus(Default::default()), ""),
                 (fx(Fx::Exposure), ""),
                 (fx(Fx::GradientMap), ""),
                 (fx(Fx::HighlightsShadows), ""),
@@ -165,6 +168,7 @@ impl App {
                 (Filter::Posterize { levels: 16 }, "Ctrl+Shift+P"),
                 (fx(Fx::Sepia), "Ctrl+Shift+E"),
                 (fx(Fx::TemperatureTint), ""),
+                (fx(Fx::Transparency), ""),
             ];
             for (f, sc) in adj {
                 let label = if f.has_dialog() { format!("{}...", f.name()) } else { f.name().to_string() };
@@ -177,6 +181,12 @@ impl App {
             if item(ui, &last, "Ctrl+F", has && self.last_effect.is_some()) { c(Cmd::RepeatEffect, true) }
             if item(ui, "Random Effect...", "", has) { c(Cmd::RandomEffect, true) }
             ui.separator();
+            ui.menu_button("Tools", |ui| {
+                ui.set_min_width(180.0);
+                for k in crate::interactive::Kind::ALL {
+                    if item(ui, &format!("{}...", k.name()), "", has) { c(Cmd::Interactive(k), true) }
+                }
+            });
             for m in Menu::EFFECT_MENUS {
                 ui.menu_button(m.name(), |ui| {
                     ui.set_min_width(180.0);
@@ -185,7 +195,8 @@ impl App {
                     }
                 });
             }
-        });        ui.menu_button("Window", |ui| {
+        });
+        ui.menu_button("Window", |ui| {
             ui.set_min_width(SC_MENU_W);
             let names = ["Tools", "History", "Layers", "Colors"];
             let keys = ["F5", "F6", "F7", "F8"];

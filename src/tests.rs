@@ -357,7 +357,8 @@ fn all_effects_run() {
         }
     }
     // effects whose default settings are intentionally neutral on this test image
-    let neutral = [Fx::Exposure, Fx::TemperatureTint, Fx::Straighten, Fx::RedEyeRemoval];
+    // (Trail's default direction points away from the test image's only transparent strip)
+    let neutral = [Fx::Exposure, Fx::TemperatureTint, Fx::Straighten, Fx::RedEyeRemoval, Fx::ObjectTrail, Fx::ColorBalance];
     let mut unchanged = vec![];
     for &k in Fx::ALL {
         let st = FxState::new(k, Col::BLACK, Col::WHITE);
@@ -376,7 +377,7 @@ fn all_effects_run() {
         assert_eq!(mixed.pixel(60, 40), src.pixel(60, 40), "{}", k.name());
     }
     assert!(unchanged.is_empty(), "effects with no visible result: {unchanged:?}");
-    assert_eq!(Fx::ALL.iter().filter(|k| k.is_effect()).count(), 59);
+    assert_eq!(Fx::ALL.iter().filter(|k| k.is_effect()).count(), 69);
 }
 /// Manual benchmark: `cargo test --release -- --ignored effect_timing --nocapture`.
 #[test]
@@ -603,10 +604,11 @@ fn plugin_inspired_effects() {
     let p = out.pixel(8, 15).unwrap();
     assert_eq!((p.red(), p.alpha()), (0, 255));
     assert_eq!(out.pixel(2, 2).unwrap().alpha(), 0);
-    // Object Trail at 0 degrees extends to the right only
+    // Trail at 0 degrees, no fade, extends to the right only
     let mut st = FxState::new(Fx::ObjectTrail, Col::BLACK, Col::WHITE);
     st.vals[0] = V::I(10);
-    st.vals[1] = V::F(0.0);
+    st.vals[2] = V::F(0.0);
+    st.vals[3] = V::B(false);
     let out = run(st);
     assert!(out.pixel(25, 15).unwrap().alpha() > 200);
     assert_eq!(out.pixel(5, 15).unwrap().alpha(), 0);
@@ -684,13 +686,24 @@ fn plugin_gallery() {
         (Fx::OutlineObject, &object), (Fx::ObjectTrail, &object), (Fx::Film, &photo), (Fx::GradientMap, &photo),
         (Fx::GradientBars, &white), (Fx::GradientGrid, &white), (Fx::BordersShapes, &white), (Fx::RandomShapes, &white),
         (Fx::Splatter, &white),
+        (Fx::BlackWhitePlus, &photo), (Fx::ColorBalance, &photo), (Fx::Dream, &photo), (Fx::Pastel, &photo),
+        (Fx::ComplementaryColors, &photo), (Fx::Dithering, &photo), (Fx::BevelObject, &object), (Fx::InnerShadow, &object),
+        (Fx::FeatherObject, &object), (Fx::GridCheckerboard, &white), (Fx::Transparency, &object), (Fx::AlphaToGray, &object),
     ];
+    let mut outs: Vec<(String, tiny_skia::Pixmap)> = Vec::new();
     let cols = 4u32;
-    let rows = (list.len() as u32).div_ceil(cols);
-    let mut sheet = tiny_skia::Pixmap::new(cols * (w + 8) + 8, rows * (h + 8) + 8).unwrap();
-    sheet.fill(tiny_skia::Color::from_rgba8(60, 60, 60, 255));
     for (i, (k, src)) in list.iter().enumerate() {
-        let st = FxState::new(*k, Col::rgba(20, 60, 160, 255), Col::rgba(250, 210, 60, 255));
+        let mut st = FxState::new(*k, Col::rgba(20, 60, 160, 255), Col::rgba(250, 210, 60, 255));
+        if *k == Fx::ColorBalance {
+            st.vals[3] = crate::fx::V::I(70);
+            st.vals[8] = crate::fx::V::I(-60);
+        }
+        if *k == Fx::BlackWhitePlus {
+            st.vals[6] = crate::fx::V::C(1);
+        }
+        if *k == Fx::GradientMap {
+            st.vals[0] = crate::fx::V::C(5); // Synthwave preset
+        }
         let mut out = raster::apply_filter(&Filter::Fx(st), src, None);
         if src.pixel(0, 0).unwrap().alpha() == 0 {
             // show transparent results over a light background
@@ -698,9 +711,24 @@ fn plugin_gallery() {
             bg.draw_pixmap(0, 0, out.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
             out = bg;
         }
+        let _ = i;
+        outs.push((k.name().to_string(), out));
+    }
+    let mut cp = crate::curves_plus::CurvesPlus { mode: 2, ..Default::default() };
+    cp.curves[0] = vec![(0, 128), (127, 255), (128, 0), (255, 127)];
+    cp.curves[1] = vec![(0, 0), (128, 220), (255, 255)];
+    cp.curves[2] = vec![(0, 0), (255, 255)];
+    outs.push(("Curves+ (HSV)".into(), raster::apply_filter(&Filter::CurvesPlus(Box::new(cp)), &photo, None)));
+    for k in [crate::interactive::Kind::Liquify, crate::interactive::Kind::GridWarp, crate::interactive::Kind::Smudge] {
+        outs.push((k.name().into(), crate::interactive::demo(k, &photo)));
+    }
+    let rows = (outs.len() as u32).div_ceil(cols);
+    let mut sheet = tiny_skia::Pixmap::new(cols * (w + 8) + 8, rows * (h + 8) + 8).unwrap();
+    sheet.fill(tiny_skia::Color::from_rgba8(60, 60, 60, 255));
+    for (i, (name, out)) in outs.iter().enumerate() {
         let (cx, cy) = (8 + (i as u32 % cols) * (w + 8), 8 + (i as u32 / cols) * (h + 8));
         sheet.draw_pixmap(cx as i32, cy as i32, out.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
-        println!("{i}: {}", k.name());
+        println!("{i}: {name}");
     }
     sheet.save_png(std::env::temp_dir().join("ferrum-plugin-gallery.png")).unwrap();
 }

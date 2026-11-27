@@ -17,6 +17,7 @@ pub enum Dialog {
     ConfirmClose { uid: u64 },
     FlattenSave { uid: u64, path: std::path::PathBuf, close_after: bool },
     ExportJpeg { uid: u64, path: std::path::PathBuf, quality: u8 },
+    Interactive(Box<crate::interactive::State>),
     About,
     Shortcuts,
     Message(String),
@@ -168,6 +169,7 @@ fn filter_controls(ui: &mut Ui, f: &mut Filter, sel_curve: &mut Option<usize>, p
             curve_editor(ui, points, sel_curve);
             ui.end_row();
         }
+        Filter::CurvesPlus(cp) => curves_plus_controls(ui, cp, sel_curve),
         _ => {
             ui.label("No options");
             ui.end_row();
@@ -334,6 +336,62 @@ fn pad_texture(ctx: &egui::Context, src: &tiny_skia::Pixmap) -> egui::TextureHan
     pm.draw_pixmap(0, 0, src.as_ref(), &paint, Transform::from_scale(w as f32 / src.width() as f32, h as f32 / src.height() as f32), None);
     let img = egui::ColorImage::from_rgba_premultiplied([w as usize, h as usize], pm.data());
     ctx.load_texture("fxpad", img, egui::TextureOptions::LINEAR)
+}
+
+/// Curves+ dialog body: mode, channel toggles (or Advanced input/output), and the curve editor.
+fn curves_plus_controls(ui: &mut Ui, cp: &mut crate::curves_plus::CurvesPlus, sel: &mut Option<usize>) {
+    use crate::curves_plus::{CHANNELS, MODES};
+    ui.label("Mode");
+    let old = cp.mode;
+    egui::ComboBox::from_id_salt("cp_mode").selected_text(MODES[cp.mode]).show_ui(ui, |ui| {
+        for (i, m) in MODES.iter().enumerate() {
+            ui.selectable_value(&mut cp.mode, i, *m);
+        }
+    });
+    if cp.mode != old {
+        cp.reset_curves();
+        *sel = None;
+    }
+    ui.end_row();
+    let names = cp.channel_names();
+    if cp.mode == 5 {
+        for (label, v, id) in [("Input", &mut cp.adv_in, "cp_in"), ("Output", &mut cp.adv_out, "cp_out")] {
+            ui.label(label);
+            egui::ComboBox::from_id_salt(id).selected_text(CHANNELS[*v]).show_ui(ui, |ui| {
+                for (i, c) in CHANNELS.iter().enumerate() {
+                    ui.selectable_value(v, i, *c);
+                }
+            });
+            ui.end_row();
+        }
+    } else if names.len() > 1 {
+        ui.label("Edit");
+        ui.horizontal(|ui| {
+            for (i, n) in names.iter().enumerate() {
+                if ui.checkbox(&mut cp.edit[i], *n).changed() {
+                    *sel = None;
+                }
+            }
+        });
+        ui.end_row();
+    }
+    let n = names.len();
+    if !cp.edit[..n].iter().any(|&e| e) {
+        cp.edit[0] = true;
+    }
+    let first = (0..n).find(|&i| cp.edit[i]).unwrap_or(0);
+    ui.label("");
+    let before = cp.curves[first].clone();
+    curve_editor(ui, &mut cp.curves[first], sel);
+    if cp.curves[first] != before {
+        let c = cp.curves[first].clone();
+        for i in 0..n {
+            if cp.edit[i] {
+                cp.curves[i] = c.clone();
+            }
+        }
+    }
+    ui.end_row();
 }
 
 fn curve_editor(ui: &mut Ui, points: &mut Vec<(u8, u8)>, sel: &mut Option<usize>) {
@@ -910,7 +968,28 @@ impl App {
                     }
                     _ => true,
                 }
-            }            Dialog::RotateZoom { uid, idx, before, angle, pan, zoom, applied } => {
+            }            Dialog::Interactive(st) => {
+                let Some(di) = self.doc_by_uid(st.uid) else { return false };
+                if st.idx >= self.docs[di].layers.len() {
+                    return false;
+                }
+                match st.show(ctx) {
+                    crate::interactive::Outcome::Open => true,
+                    crate::interactive::Outcome::Cancel => false,
+                    crate::interactive::Outcome::Ok => {
+                        let doc = &mut self.docs[di];
+                        let before = doc.layers[st.idx].clone();
+                        let res = st.result();
+                        let mut out = before.pixmap.clone();
+                        raster::masked_mix(&before.pixmap, &res, doc.selection.as_ref(), &mut out);
+                        doc.layers[st.idx].pixmap = out;
+                        doc.changed();
+                        doc.push_history(st.kind.name(), Snapshot::Layer(st.idx, before));
+                        false
+                    }
+                }
+            }
+            Dialog::RotateZoom { uid, idx, before, angle, pan, zoom, applied } => {
                 let Some(di) = self.doc_by_uid(*uid) else { return false };
                 if *idx >= self.docs[di].layers.len() {
                     return false;

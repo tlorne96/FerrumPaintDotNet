@@ -60,6 +60,7 @@ pub enum Cmd {
     Filter(Filter),
     RepeatEffect,
     RandomEffect,
+    Interactive(crate::interactive::Kind),
     ToggleWindow(u8),
     ResetWindow(u8),
     About,
@@ -138,6 +139,12 @@ impl App {
             if let Some(&k) = crate::fx::Fx::ALL.iter().find(|k| k.name().eq_ignore_ascii_case(&name)) {
                 if !app.docs.is_empty() {
                     app.start_filter(Filter::Fx(crate::fx::FxState::new(k, app.primary, app.secondary)));
+                }
+            } else if let Some(&k) = crate::interactive::Kind::ALL.iter().find(|k| k.name().eq_ignore_ascii_case(&name)) {
+                if !app.docs.is_empty() {
+                    let doc = &app.docs[app.cur];
+                    let st = crate::interactive::State::new(doc.uid, doc.active, k, &doc.layers[doc.active].pixmap);
+                    app.dialog = Some(Dialog::Interactive(Box::new(st)));
                 }
             }
         }
@@ -513,6 +520,11 @@ impl App {
                 crate::theme::set_mode(ctx, mode);
                 crate::theme::save_theme_mode(mode);
                 self.dark = ctx.theme() == egui::Theme::Dark;
+            }
+            Cmd::Interactive(kind) => {
+                let doc = &self.docs[self.cur];
+                let st = crate::interactive::State::new(doc.uid, doc.active, kind, &doc.layers[doc.active].pixmap);
+                self.dialog = Some(Dialog::Interactive(Box::new(st)));
             }
             Cmd::RandomEffect => {
                 let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos() ^ d.as_secs() as u32).unwrap_or(1);
