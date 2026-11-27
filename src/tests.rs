@@ -732,3 +732,116 @@ fn plugin_gallery() {
     }
     sheet.save_png(std::env::temp_dir().join("ferrum-plugin-gallery.png")).unwrap();
 }
+#[cfg(test)]
+mod smart_clone_tests {
+    use crate::smart_clone::*;
+    use egui::{pos2, vec2};
+    use tiny_skia::Pixmap;
+
+    fn stripes(w: u32, h: u32) -> Pixmap {
+        let mut pm = Pixmap::new(w, h).unwrap();
+        for y in 0..h {
+            for x in 0..w {
+                let v = if (x / 4) % 2 == 0 { 200u8 } else { 60 };
+                let i = ((y * w + x) * 4) as usize;
+                pm.data_mut()[i..i + 4].copy_from_slice(&[v, v / 2, 255 - v, 255]);
+            }
+        }
+        pm
+    }
+
+    #[test]
+    fn heal_removes_blemish() {
+        let mut pm = stripes(120, 120);
+        let clean = pm.clone();
+        for y in 55..65 {
+            for x in 55..65 {
+                let i = ((y * 120 + x) * 4) as usize;
+                pm.data_mut()[i..i + 4].copy_from_slice(&[255, 0, 0, 255]);
+            }
+        }
+        assert!(heal(&mut pm, None, &[pos2(60.0, 60.0)], 18.0, true));
+        let mut err = 0u32;
+        for y in 55..65 {
+            for x in 55..65 {
+                let i = ((y * 120 + x) * 4) as usize;
+                err += (pm.data()[i] as i32 - clean.data()[i] as i32).unsigned_abs();
+                assert_eq!(pm.data()[i + 3], 255);
+            }
+        }
+        // the red blemish (|255-v| ~ 55..195) must be gone; stripes are hard so allow some slack
+        assert!(err / 100 < 90, "mean error {}", err / 100);
+        // far pixels untouched
+        assert_eq!(&pm.data()[0..4], &clean.data()[0..4]);
+    }
+
+    #[test]
+    fn blend_clone_matches_brightness() {
+        // left half dark flat, right half bright flat; clone bright source onto the dark side
+        let mut base = Pixmap::new(100, 60).unwrap();
+        for y in 0..60 {
+            for x in 0..100 {
+                let v = if x < 50 { 60u8 } else { 180 };
+                let i = ((y * 100 + x) * 4) as usize;
+                base.data_mut()[i..i + 4].copy_from_slice(&[v, v, v, 255]);
+            }
+        }
+        let mut layer = base.clone();
+        let pts = [pos2(20.0, 30.0), pos2(35.0, 30.0)];
+        blend_clone(&mut layer, &base, None, &pts, 14.0, true, vec2(60.0, 0.0));
+        let i = ((30 * 100 + 28) * 4) as usize;
+        // colour-corrected: stays near the dark surroundings rather than the bright source
+        assert!((layer.data()[i] as i32 - 60).abs() < 25, "got {}", layer.data()[i]);
+    }
+}
+
+#[cfg(test)]
+mod smart_clone_visual {
+    use crate::smart_clone::*;
+    use egui::{pos2, vec2};
+    use tiny_skia::Pixmap;
+    #[test]
+    #[ignore]
+    fn smart_clone_gallery() {
+        let (w, h) = (240u32, 180u32);
+        let mut pm = Pixmap::new(w, h).unwrap();
+        for y in 0..h {
+            for x in 0..w {
+                let (fx, fy) = (x as f32, y as f32);
+                let wood = ((fx * 0.15 + (fy * 0.05).sin() * 3.0 + (fx * 0.02).cos() * 2.0).sin() * 0.5 + 0.5) * 70.0;
+                let n = ((x * 7919 + y * 104729) % 23) as f32;
+                let r = (130.0 + wood + n) as u8;
+                let g = (90.0 + wood * 0.7 + n) as u8;
+                let b = (50.0 + wood * 0.3) as u8;
+                let i = ((y * w + x) * 4) as usize;
+                pm.data_mut()[i..i + 4].copy_from_slice(&[r, g, b, 255]);
+            }
+        }
+        let orig = pm.clone();
+        // blemishes: a blue blob and a scribble
+        let mut pts = vec![];
+        for k in 0..30 { pts.push(pos2(60.0 + k as f32 * 3.0, 70.0 + (k as f32 * 0.5).sin() * 12.0)); }
+        for y in 0..h { for x in 0..w {
+            let d = ((x as f32 - 150.0).powi(2) + (y as f32 - 110.0).powi(2)).sqrt();
+            if d < 14.0 { let i = ((y*w+x)*4) as usize; pm.data_mut()[i..i+4].copy_from_slice(&[30,60,200,255]); }
+        }}
+        let blem = pm.clone();
+        let mut healed = pm.clone();
+        heal(&mut healed, None, &[pos2(150.0, 110.0)], 36.0, true);
+        // blend clone: bright patch from the left to a darker area
+        let mut dark = orig.clone();
+        for y in 0..h { for x in 120..w { let i=((y*w+x)*4) as usize; for c in 0..3 { dark.data_mut()[i+c] = (dark.data()[i+c] as f32*0.55) as u8; } } }
+        let mut plain = dark.clone();
+        let mut blend = dark.clone();
+        let cp: Vec<_> = (0..20).map(|k| pos2(150.0 + k as f32 * 2.0, 60.0)).collect();
+        blend_clone(&mut blend, &dark, None, &cp, 30.0, true, vec2(-80.0, 0.0));
+        crate::paint::draw_brush_stroke(&mut plain, None, &cp, 30.0, true, false, crate::paint::BrushKind::Clone { source: &dark.clone(), offset: vec2(-80.0, 0.0) });
+        let tiles = [&blem, &healed, &orig, &plain, &blend, &dark];
+        let mut out = Pixmap::new(w * 3, h * 2).unwrap();
+        for (k, t) in tiles.iter().enumerate() {
+            out.draw_pixmap(((k as u32 % 3) * w) as i32, ((k as u32 / 3) * h) as i32, t.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
+        }
+        let p = std::env::temp_dir().join("ferrum-smart-gallery.png");
+        out.save_png(p).unwrap();
+    }
+}

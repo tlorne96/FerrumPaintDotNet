@@ -148,6 +148,11 @@ impl App {
                 }
             }
         }
+        if let Ok(name) = std::env::var("FERRUM_TOOL") {
+            if let Some(&t) = Tool::ALL.iter().find(|t| t.name().eq_ignore_ascii_case(&name)) {
+                app.tool = t;
+            }
+        }
         app
     }
 

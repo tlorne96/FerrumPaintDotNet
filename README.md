@@ -19,7 +19,7 @@ The one exception is a set of effects and tools ported from Zach Walker's (pyroc
   - Selection: Rectangle Select, Lasso Select, Ellipse Select and Magic Wand. Each supports replace, add (Ctrl), subtract (Alt), invert and intersect.
   - Move: Move Selected Pixels and Move Selection, both with drag, right-drag rotate and arrow-key nudge.
   - Navigation: Zoom and Pan.
-  - Painting: Paint Bucket, Gradient, Paintbrush, Eraser, Pencil, Color Picker, Clone Stamp and Recolor.
+  - Painting: Paint Bucket, Gradient, Paintbrush, Eraser, Pencil, Color Picker, Clone Stamp, **Smart Clone** and Recolor.
   - Drawing: Text, Line / Curve and Shapes.
 - **Shapes tool** with two drawing modes, chosen in the options bar under **Draw from: Corner / Centre**:
   - *Corner*: the drag runs from one corner to the opposite corner.
@@ -33,6 +33,7 @@ The one exception is a set of effects and tools ported from Zach Walker's (pyroc
 - **Image menu**: crop to selection, resize (with resampling choice), canvas size (with anchor), flip, rotate 90°/180°, flatten, and Rotate/Zoom layer.
 - **Adjustments** (19): Auto-Level, Black and White, Black and White+, Brightness/Contrast, Color Balance, Color Match, Curves, Curves+, Exposure, Gradient Mapping, Highlights/Shadows, Hue/Saturation, Invert Alpha, Invert Colors, Levels, Posterize, Sepia (with intensity), Temperature and Tint, and Transparency.
   - **Curves+** has Luminosity, RGB, HSV, CMYK, Alpha and Advanced modes. Advanced maps any input channel to any output channel, and the per-channel *Edit* boxes link curves together.
+  - **Smart Clone** (key L, cycles with Clone Stamp; helmet icon) has a mode drop-down in the toolbar: *Blend clone* (Ctrl+click a source, drag; copied pixels are colour-matched to their surroundings so there are no seams) and *Content-aware heal* (paint over a blemish and release; it is filled from the surrounding texture, honouring the selection). Clean-room.
   - **Color Match** recolours the layer to resemble a reference image from the clipboard or a file, by histogram matching or Lab statistics transfer (clean-room).
   - **Gradient Mapping** maps any of 12 input channels (A, R, G, B, C, M, Y, K, H, S, V, Luminosity) through a gradient, with 15 presets, an offset that can wrap, and a Lock alpha option.
 - **Effects → Tools** (interactive, in their own canvas window with brush preview, Ctrl+wheel zoom and their own undo/redo):
@@ -173,6 +174,7 @@ ferrum-paint --write-icon icon.png 256
 | `src/fx/` | Effect registry, parameter specs and all parametric adjustments and effects (`pyrochild.rs`: MIT ports; `extras.rs`, `pack2.rs`: clean-room plugin-style effects) |
 | `src/curves_plus.rs` | Curves+ (MIT port of the pixel maths) |
 | `src/color_match.rs` | Color Match (clean-room) |
+| `src/smart_clone.rs` | Smart Clone: blend clone and content-aware heal (clean-room) |
 | `src/interactive.rs` | Liquify, Grid Warp and Smudge (MIT ports) and their canvas window |
 | `src/theme.rs` | Light and dark themes, UI fonts, tool-window headers, saved preferences |
 | `src/paint.rs` | Shape, line, brush, text and gradient rasterisation (tiny-skia) |

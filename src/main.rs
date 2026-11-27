@@ -15,6 +15,7 @@ mod icons;
 mod interactive;
 mod paint;
 mod raster;
+mod smart_clone;
 mod text;
 mod theme;
 mod tools;

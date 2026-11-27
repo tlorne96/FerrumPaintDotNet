@@ -326,10 +326,18 @@ impl App {
             self.render_pending();
         }
         let pending = std::mem::take(&mut self.pending);
+        let (smart, sbw, saa) = (self.ts.smart_mode, self.ts.brush_width, self.ts.antialias);
         let Some(doc) = self.docs.get_mut(self.cur) else { return };
         match pending {
             Pending::None | Pending::Picking | Pending::ZoomRect { .. } => {}
             Pending::Stroke(s) => {
+                if s.tool == Tool::SmartClone && smart == crate::smart_clone::SmartMode::Heal && s.layer < doc.layers.len() {
+                    let clip = doc.selection.clone();
+                    let layer = &mut doc.layers[s.layer];
+                    restore(&mut layer.pixmap, &s.base.pixmap);
+                    crate::smart_clone::heal(&mut layer.pixmap, clip.as_ref(), &s.points, sbw, saa);
+                    doc.composite_dirty = true;
+                }
                 doc.push_history(s.tool.name(), Snapshot::Layer(s.layer, s.base));
             }
             Pending::Select(s) => {
@@ -376,13 +384,24 @@ impl App {
         let (bw, aa, ow) = (self.ts.brush_width, self.ts.antialias, self.ts.overwrite);
         let (gk, gt) = (self.ts.gradient, self.ts.grad_transparency);
         let bold = self.ts.bold;
+        let smart = self.ts.smart_mode;
         let Some(doc) = self.docs.get_mut(self.cur) else { return };
         match &mut self.pending {
             Pending::Stroke(s) => {
-                if matches!(s.tool, Tool::Paintbrush | Tool::Eraser | Tool::CloneStamp) && s.layer < doc.layers.len() {
+                if matches!(s.tool, Tool::Paintbrush | Tool::Eraser | Tool::CloneStamp | Tool::SmartClone) && s.layer < doc.layers.len() {
                     let clip = doc.selection.clone();
                     let layer = &mut doc.layers[s.layer];
                     restore(&mut layer.pixmap, &s.base.pixmap);
+                    if s.tool == Tool::SmartClone {
+                        if smart == crate::smart_clone::SmartMode::Blend {
+                            crate::smart_clone::blend_clone(&mut layer.pixmap, &s.base.pixmap, clip.as_ref(), &s.points, bw, aa, s.offset);
+                        } else {
+                            // preview of the area that will be healed
+                            paint::draw_brush_stroke(&mut layer.pixmap, clip.as_ref(), &s.points, bw, aa, false, BrushKind::Paint(Col::rgba(255, 60, 60, 110)));
+                        }
+                        doc.composite_dirty = true;
+                        return;
+                    }
                     let kind = match s.tool {
                         Tool::Eraser => BrushKind::Erase,
                         Tool::CloneStamp => BrushKind::Clone { source: &s.base.pixmap, offset: s.offset },
@@ -768,10 +787,10 @@ impl App {
                     drag: Some(GradDrag::Create),
                 });
             }
-            Tool::Paintbrush | Tool::Eraser | Tool::Pencil | Tool::CloneStamp | Tool::Recolor => {
+            Tool::Paintbrush | Tool::Eraser | Tool::Pencil | Tool::CloneStamp | Tool::SmartClone | Tool::Recolor => {
                 self.commit_pending();
                 let mut offset = Vec2::ZERO;
-                if self.tool == Tool::CloneStamp {
+                if self.tool == Tool::CloneStamp || (self.tool == Tool::SmartClone && self.ts.smart_mode == crate::smart_clone::SmartMode::Blend) {
                     if m.ctrl {
                         self.clone_source = Some(p);
                         self.status_msg = format!("Clone source set at {}, {}", p.x as i32, p.y as i32);
@@ -1443,7 +1462,7 @@ impl App {
                         }
                     }
                     Tool::Text => CursorIcon::Text,
-                    Tool::Paintbrush | Tool::Eraser | Tool::CloneStamp | Tool::Recolor => CursorIcon::None,
+                    Tool::Paintbrush | Tool::Eraser | Tool::CloneStamp | Tool::SmartClone | Tool::Recolor => CursorIcon::None,
                     _ => CursorIcon::Crosshair,
                 }
             };
@@ -1593,7 +1612,7 @@ impl App {
         }
 
         // clone source marker
-        if self.tool == Tool::CloneStamp {
+        if self.tool == Tool::CloneStamp || (self.tool == Tool::SmartClone && self.ts.smart_mode == crate::smart_clone::SmartMode::Blend) {
             if let Some(src) = self.clone_source {
                 let mut s = src;
                 if let (Pending::Stroke(st), Some(_)) = (&self.pending, self.drag) {
@@ -1610,7 +1629,7 @@ impl App {
         }
 
         // brush outline cursor
-        if hovered && !self.space_down && matches!(self.tool, Tool::Paintbrush | Tool::Eraser | Tool::CloneStamp | Tool::Recolor) {
+        if hovered && !self.space_down && matches!(self.tool, Tool::Paintbrush | Tool::Eraser | Tool::CloneStamp | Tool::SmartClone | Tool::Recolor) {
             if let Some(h) = ctx.input(|i| i.pointer.hover_pos()) {
                 let r = (self.ts.brush_width / 2.0 * zoom).max(1.5);
                 painter.circle_stroke(h, r, Stroke::new(1.0f32, Color32::BLACK));

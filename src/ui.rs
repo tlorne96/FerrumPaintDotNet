@@ -485,6 +485,16 @@ impl App {
                 self.aa_widget(ui);
                 self.blend_widget(ui);
             }
+            Tool::SmartClone => {
+                ui.label("Mode:");
+                egui::ComboBox::from_id_salt("smart_mode").selected_text(self.ts.smart_mode.name()).show_ui(ui, |ui| {
+                    for m in crate::smart_clone::SmartMode::ALL {
+                        ui.selectable_value(&mut self.ts.smart_mode, m, m.name());
+                    }
+                });
+                self.width_widget(ui, "Brush width:");
+                self.aa_widget(ui);
+            }
             Tool::Recolor => {
                 self.width_widget(ui, "Brush width:");
                 ui.label("Tolerance:");

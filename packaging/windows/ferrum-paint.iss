@@ -1,9 +1,9 @@
 ; Ferrum Paint - Windows installer (Inno Setup 6)
-; Build:  ISCC.exe /DAppVersion=0.1.4 /DExePath=path\to\ferrum-paint.exe packaging\windows\ferrum-paint.iss
+; Build:  ISCC.exe /DAppVersion=0.1.5 /DExePath=path\to\ferrum-paint.exe packaging\windows\ferrum-paint.iss
 ; Output: dist\FerrumPaint-<version>-Setup.exe
 
 #ifndef AppVersion
-  #define AppVersion "0.1.4"
+  #define AppVersion "0.1.5"
 #endif
 #ifndef ExePath
   #define ExePath "..\..\target\release\ferrum-paint.exe"

@@ -19,6 +19,7 @@ pub enum Tool {
     Pencil,
     ColorPicker,
     CloneStamp,
+    SmartClone,
     Recolor,
     Text,
     LineCurve,
@@ -32,7 +33,7 @@ pub fn snaps(t: Tool) -> bool {
 
 impl Tool {
     /// Order shown in the Tools window (two columns).
-    pub const ALL: [Tool; 19] = [
+    pub const ALL: [Tool; 20] = [
         Tool::RectSelect,
         Tool::MovePixels,
         Tool::LassoSelect,
@@ -48,6 +49,7 @@ impl Tool {
         Tool::Pencil,
         Tool::ColorPicker,
         Tool::CloneStamp,
+        Tool::SmartClone,
         Tool::Recolor,
         Tool::Text,
         Tool::LineCurve,
@@ -71,6 +73,7 @@ impl Tool {
             Tool::Pencil => "Pencil",
             Tool::ColorPicker => "Color Picker",
             Tool::CloneStamp => "Clone Stamp",
+            Tool::SmartClone => "Smart Clone",
             Tool::Recolor => "Recolor",
             Tool::Text => "Text",
             Tool::LineCurve => "Line / Curve",
@@ -90,7 +93,7 @@ impl Tool {
             Tool::Eraser => 'E',
             Tool::Pencil => 'P',
             Tool::ColorPicker => 'K',
-            Tool::CloneStamp => 'L',
+            Tool::CloneStamp | Tool::SmartClone => 'L',
             Tool::Recolor => 'R',
             Tool::Text => 'T',
             Tool::LineCurve | Tool::Shapes => 'O',
@@ -124,6 +127,7 @@ impl Tool {
             Tool::Pencil => "Left click to draw 1-pixel freehand lines with the primary colour, right click for secondary.",
             Tool::ColorPicker => "Left click to set the primary colour, right click for secondary. Hold Ctrl to sample the whole image.",
             Tool::CloneStamp => "Ctrl+click to set the source point, then drag to copy pixels from the source.",
+            Tool::SmartClone => "Blend clone: Ctrl+click a source, drag to paint (colours matched). Heal: paint over a blemish and release. Mode is in the toolbar.",
             Tool::Recolor => "Left-drag to replace the secondary colour with the primary colour. Right-drag does the reverse.",
             Tool::Text => "Click to place the cursor and type. Drag the text to move it. Press Esc to finish.",
             Tool::LineCurve => "Drag to draw a line. Drag the middle nub to bend it into a curve. Alt draws from the centre. Enter finishes.",
@@ -133,7 +137,7 @@ impl Tool {
 
     #[allow(dead_code)]
     pub fn uses_brush_width(self) -> bool {
-        matches!(self, Tool::Paintbrush | Tool::Eraser | Tool::CloneStamp | Tool::Recolor | Tool::LineCurve | Tool::Shapes)
+        matches!(self, Tool::Paintbrush | Tool::Eraser | Tool::CloneStamp | Tool::SmartClone | Tool::Recolor | Tool::LineCurve | Tool::Shapes)
     }
 
     #[allow(dead_code)]
@@ -327,6 +331,7 @@ pub struct ToolSettings {
     pub from_center: bool,
     pub corner_radius: f32,
     pub dash: DashStyle,
+    pub smart_mode: crate::smart_clone::SmartMode,
     pub start_cap: LineCap,
     pub end_cap: LineCap,
     pub gradient: GradKind,
@@ -357,6 +362,7 @@ impl Default for ToolSettings {
             from_center: false,
             corner_radius: 20.0,
             dash: DashStyle::Solid,
+            smart_mode: crate::smart_clone::SmartMode::Blend,
             start_cap: LineCap::Flat,
             end_cap: LineCap::Flat,
             gradient: GradKind::Linear,
