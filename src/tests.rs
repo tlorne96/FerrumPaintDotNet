@@ -845,3 +845,28 @@ mod smart_clone_visual {
         out.save_png(p).unwrap();
     }
 }
+
+#[cfg(test)]
+mod smart_clone_timing {
+    use crate::smart_clone::*;
+    use egui::pos2;
+    use tiny_skia::Pixmap;
+    #[test]
+    #[ignore]
+    fn heal_timing() {
+        let (w, h) = (3000u32, 2000u32);
+        let mut pm = Pixmap::new(w, h).unwrap();
+        for (i, p) in pm.data_mut().chunks_exact_mut(4).enumerate() {
+            let x = (i as u32 % w) as f32;
+            let v = (128.0 + 100.0 * (x * 0.05).sin() * ((i / 3000) as f32 * 0.03).cos()) as u8;
+            p.copy_from_slice(&[v, v, v, 255]);
+        }
+        let pts: Vec<_> = (0..40).map(|k| pos2(1000.0 + k as f32 * 8.0, 900.0 + (k as f32 * 0.3).sin() * 40.0)).collect();
+        for width in [20.0f32, 80.0, 150.0] {
+            let mut c = pm.clone();
+            let t = std::time::Instant::now();
+            heal(&mut c, None, &pts, width, true);
+            println!("heal width {width}: {:?}", t.elapsed());
+        }
+    }
+}

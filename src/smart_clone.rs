@@ -68,143 +68,92 @@ fn clip_ok(clip: Option<&Mask>, iw: i32, x: i32, y: i32) -> bool {
 // ---------------------------------------------------------------------------------------------
 // Blend clone
 
-/// Draws a colour-matched clone stroke into `layer`, reading the original pixels from `base`.
-pub fn blend_clone(layer: &mut Pixmap, base: &Pixmap, clip: Option<&Mask>, points: &[Pos2], width: f32, aa: bool, offset: Vec2) {
+/// Stamps colour-matched dabs along a segment. Each dab copies source pixels (`base` shifted by
+/// `offset`) and shifts their colour by the average destination-minus-source difference measured on a
+/// ring just outside the dab, so the edge of the stroke matches its surroundings. Source texture stays sharp.
+pub fn blend_segment(layer: &mut Pixmap, base: &Pixmap, clip: Option<&Mask>, a: Pos2, b: Pos2, width: f32, offset: Vec2) {
+    let r = (width / 2.0).max(0.5);
+    let len = (b - a).length();
+    let step = (r * 0.25).max(0.75);
+    let n = (len / step).ceil().max(1.0) as usize;
+    for i in 0..=n {
+        let c = a + (b - a) * (i as f32 / n as f32);
+        blend_dab(layer, base, clip, c, r, offset);
+    }
+}
+
+pub fn blend_clone(layer: &mut Pixmap, base: &Pixmap, clip: Option<&Mask>, points: &[Pos2], width: f32, _aa: bool, offset: Vec2) {
+    match points.len() {
+        0 => {}
+        1 => blend_segment(layer, base, clip, points[0], points[0], width, offset),
+        _ => {
+            for w in points.windows(2) {
+                blend_segment(layer, base, clip, w[0], w[1], width, offset);
+            }
+        }
+    }
+}
+
+fn blend_dab(layer: &mut Pixmap, base: &Pixmap, clip: Option<&Mask>, c: Pos2, r: f32, offset: Vec2) {
     let (iw, ih) = (base.width() as i32, base.height() as i32);
-    let Some(cv) = stroke_cover(points, width, aa, base.width(), base.height()) else { return };
     let (ox, oy) = (offset.x.round() as i32, offset.y.round() as i32);
     let bd = base.data();
-    let src_px = |x: i32, y: i32| -> [f32; 4] {
-        let sx = (x - ox).clamp(0, iw - 1);
-        let sy = (y - oy).clamp(0, ih - 1);
-        let i = ((sy * iw + sx) * 4) as usize;
+    let at = |x: i32, y: i32| -> [f32; 4] {
+        let i = ((y * iw + x) * 4) as usize;
         [bd[i] as f32, bd[i + 1] as f32, bd[i + 2] as f32, bd[i + 3] as f32]
     };
-    let (bw, bh) = (cv.w as usize, cv.h as usize);
-    // difference field D = destination - source (rgb)
-    let mut d = vec![[0f32; 3]; bw * bh];
-    for y in 0..bh {
-        for x in 0..bw {
-            let (gx, gy) = (cv.x0 + x as i32, cv.y0 + y as i32);
-            let i = ((gy * iw + gx) * 4) as usize;
-            let s = src_px(gx, gy);
-            d[y * bw + x] = [bd[i] as f32 - s[0], bd[i + 1] as f32 - s[1], bd[i + 2] as f32 - s[2]];
-        }
-    }
-    let corr = membrane(&d, &cv.a, bw, bh);
-    let ld = layer.data_mut();
-    for y in 0..bh {
-        for x in 0..bw {
-            let c = cv.a[y * bw + x];
-            if c == 0 {
+    // colour difference on two rings around the dab
+    let mut sum = [0f32; 3];
+    let mut cnt = 0f32;
+    for (ri, rr) in [r + 2.0, r * 1.35 + 3.0].into_iter().enumerate() {
+        let samples = if ri == 0 { 40 } else { 56 };
+        for k in 0..samples {
+            let ang = k as f32 / samples as f32 * std::f32::consts::TAU;
+            let (qx, qy) = ((c.x + ang.cos() * rr).floor() as i32, (c.y + ang.sin() * rr).floor() as i32);
+            let (sx, sy) = (qx - ox, qy - oy);
+            if qx < 0 || qy < 0 || qx >= iw || qy >= ih || sx < 0 || sy < 0 || sx >= iw || sy >= ih {
                 continue;
             }
-            let (gx, gy) = (cv.x0 + x as i32, cv.y0 + y as i32);
-            if !clip_ok(clip, iw, gx, gy) {
+            let (d, s) = (at(qx, qy), at(sx, sy));
+            let w = (d[3] * s[3]) / 65025.0;
+            if w <= 0.0 {
                 continue;
             }
-            let s = src_px(gx, gy);
-            let k = corr[y * bw + x];
-            let al = s[3];
-            let mut o = [0f32; 4];
             for ch in 0..3 {
-                o[ch] = (s[ch] + k[ch]).clamp(0.0, al);
+                sum[ch] += (d[ch] - s[ch]) * w;
             }
-            o[3] = al;
-            let a = c as f32 / 255.0;
-            let i = ((gy * iw + gx) * 4) as usize;
+            cnt += w;
+        }
+    }
+    let corr = if cnt > 0.5 { [sum[0] / cnt, sum[1] / cnt, sum[2] / cnt] } else { [0.0; 3] };
+    let feather = (r * 0.3).max(1.0);
+    let x0 = ((c.x - r - 1.0).floor() as i32).max(0);
+    let y0 = ((c.y - r - 1.0).floor() as i32).max(0);
+    let x1 = ((c.x + r + 1.0).ceil() as i32).min(iw);
+    let y1 = ((c.y + r + 1.0).ceil() as i32).min(ih);
+    let ld = layer.data_mut();
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let d = ((x as f32 + 0.5 - c.x).powi(2) + (y as f32 + 0.5 - c.y).powi(2)).sqrt();
+            let cov = ((r - d) / feather + 0.5).clamp(0.0, 1.0);
+            if cov <= 0.0 || !clip_ok(clip, iw, x, y) {
+                continue;
+            }
+            let (sx, sy) = ((x - ox).clamp(0, iw - 1), (y - oy).clamp(0, ih - 1));
+            let s = at(sx, sy);
+            let mut t = [0f32; 4];
+            for ch in 0..3 {
+                t[ch] = (s[ch] + corr[ch]).clamp(0.0, s[3]);
+            }
+            t[3] = s[3];
+            let i = ((y * iw + x) * 4) as usize;
             for ch in 0..4 {
-                let b = bd[i + ch] as f32;
-                ld[i + ch] = (b + (o[ch] - b) * a).round().clamp(0.0, 255.0) as u8;
+                let cur = ld[i + ch] as f32;
+                ld[i + ch] = (cur + (t[ch] - cur) * cov).round().clamp(0.0, 255.0) as u8;
             }
         }
     }
 }
-
-/// Harmonic interpolation: inside the mask (cov > 0) the field is solved from the border values.
-fn membrane(d: &[[f32; 3]], cov: &[u8], w: usize, h: usize) -> Vec<[f32; 3]> {
-    let f = ((w.max(h) as f32 / 160.0).ceil() as usize).max(1);
-    let (cw, ch) = (w.div_ceil(f), h.div_ceil(f));
-    let mut v = vec![[0f32; 3]; cw * ch];
-    let mut omega = vec![false; cw * ch];
-    let (mut sum, mut cnt) = ([0f32; 3], 0f32);
-    for cy in 0..ch {
-        for cx in 0..cw {
-            let (mut acc, mut n, mut inside) = ([0f32; 3], 0f32, false);
-            for y in (cy * f)..((cy + 1) * f).min(h) {
-                for x in (cx * f)..((cx + 1) * f).min(w) {
-                    if cov[y * w + x] > 0 {
-                        inside = true;
-                    } else {
-                        let p = d[y * w + x];
-                        for k in 0..3 {
-                            acc[k] += p[k];
-                        }
-                        n += 1.0;
-                    }
-                }
-            }
-            let i = cy * cw + cx;
-            if inside || n == 0.0 {
-                omega[i] = true;
-            } else {
-                v[i] = [acc[0] / n, acc[1] / n, acc[2] / n];
-                for k in 0..3 {
-                    sum[k] += v[i][k];
-                }
-                cnt += 1.0;
-            }
-        }
-    }
-    let mean = if cnt > 0.0 { [sum[0] / cnt, sum[1] / cnt, sum[2] / cnt] } else { [0.0; 3] };
-    for i in 0..cw * ch {
-        if omega[i] {
-            v[i] = mean;
-        }
-    }
-    let iters = (3 * cw.max(ch)).clamp(30, 500);
-    let wsor = 1.7f32;
-    for _ in 0..iters {
-        for cy in 0..ch {
-            for cx in 0..cw {
-                let i = cy * cw + cx;
-                if !omega[i] {
-                    continue;
-                }
-                let l = v[cy * cw + cx.saturating_sub(1)];
-                let r = v[cy * cw + (cx + 1).min(cw - 1)];
-                let u = v[cy.saturating_sub(1) * cw + cx];
-                let dn = v[(cy + 1).min(ch - 1) * cw + cx];
-                for k in 0..3 {
-                    let t = (l[k] + r[k] + u[k] + dn[k]) * 0.25;
-                    v[i][k] += wsor * (t - v[i][k]);
-                }
-            }
-        }
-    }
-    if f == 1 {
-        return v;
-    }
-    // bilinear upsample
-    let mut out = vec![[0f32; 3]; w * h];
-    for y in 0..h {
-        let fy = ((y as f32 + 0.5) / f as f32 - 0.5).clamp(0.0, (ch - 1) as f32);
-        let (y0, ty) = (fy.floor() as usize, fy.fract());
-        let y1 = (y0 + 1).min(ch - 1);
-        for x in 0..w {
-            let fx = ((x as f32 + 0.5) / f as f32 - 0.5).clamp(0.0, (cw - 1) as f32);
-            let (x0, tx) = (fx.floor() as usize, fx.fract());
-            let x1 = (x0 + 1).min(cw - 1);
-            for k in 0..3 {
-                let a = v[y0 * cw + x0][k] * (1.0 - tx) + v[y0 * cw + x1][k] * tx;
-                let b = v[y1 * cw + x0][k] * (1.0 - tx) + v[y1 * cw + x1][k] * tx;
-                out[y * w + x][k] = a * (1.0 - ty) + b * ty;
-            }
-        }
-    }
-    out
-}
-
 // ---------------------------------------------------------------------------------------------
 // Content-aware heal
 
@@ -271,8 +220,8 @@ pub fn heal(layer: &mut Pixmap, clip: Option<&Mask>, points: &[Pos2], width: f32
     for y in 0..cv.h {
         for x in 0..cv.w {
             if raw[(y * cv.w + x) as usize] {
-                for dy in -1..=1 {
-                    for dx in -1..=1 {
+                for dy in -2..=2 {
+                    for dx in -2..=2 {
                         let (gx, gy) = (cv.x0 + x + dx - rx0, cv.y0 + y + dy - ry0);
                         if gx >= 0 && gy >= 0 && gx < rw && gy < rh {
                             if clip_ok(clip, iw, cv.x0 + x + dx, cv.y0 + y + dy) {

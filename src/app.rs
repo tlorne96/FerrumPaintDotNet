@@ -87,6 +87,8 @@ pub struct App {
     pub pending_dirty: bool,
     pub drag: Option<DragInfo>,
     pub clone_source: Option<egui::Pos2>,
+    /// Region of the active layer changed by the in-progress brush stroke (for partial texture updates).
+    pub stroke_dirty: Option<[i32; 4]>,
     pub show: [bool; 4],
     pub window_gen: [u32; 4],
     pub show_grid: bool,
@@ -172,6 +174,7 @@ impl App {
             pending_dirty: false,
             drag: None,
             clone_source: None,
+            stroke_dirty: None,
             show: [true; 4],
             window_gen: [0; 4],
             show_grid: false,

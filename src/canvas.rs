@@ -255,6 +255,40 @@ fn sgn(v: f32) -> f32 {
     }
 }
 
+fn pts_rect(points: &[Pos2], pad: f32, w: u32, h: u32) -> Option<[i32; 4]> {
+    if points.is_empty() {
+        return None;
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for p in points {
+        x0 = x0.min(p.x);
+        y0 = y0.min(p.y);
+        x1 = x1.max(p.x);
+        y1 = y1.max(p.y);
+    }
+    let r = [(x0 - pad).floor().max(0.0) as i32, (y0 - pad).floor().max(0.0) as i32, ((x1 + pad).ceil() as i32).min(w as i32), ((y1 + pad).ceil() as i32).min(h as i32)];
+    (r[2] > r[0] && r[3] > r[1]).then_some(r)
+}
+fn union_rect(a: Option<[i32; 4]>, b: [i32; 4]) -> Option<[i32; 4]> {
+    Some(match a {
+        None => b,
+        Some(a) => [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])],
+    })
+}
+fn restore_rect(dst: &mut Pixmap, src: &Pixmap, r: [i32; 4]) {
+    if dst.width() != src.width() || dst.height() != src.height() {
+        *dst = src.clone();
+        return;
+    }
+    let w = dst.width() as usize;
+    let (x0, x1) = (r[0] as usize * 4, r[2] as usize * 4);
+    let sd = src.data();
+    let dd = dst.data_mut();
+    for y in r[1] as usize..r[3] as usize {
+        let o = y * w * 4;
+        dd[o + x0..o + x1].copy_from_slice(&sd[o + x0..o + x1]);
+    }
+}
 fn restore(dst: &mut Pixmap, src: &Pixmap) {
     if dst.width() == src.width() && dst.height() == src.height() {
         dst.data_mut().copy_from_slice(src.data());
@@ -327,6 +361,7 @@ impl App {
         }
         let pending = std::mem::take(&mut self.pending);
         let (smart, sbw, saa) = (self.ts.smart_mode, self.ts.brush_width, self.ts.antialias);
+        self.stroke_dirty = None;
         let Some(doc) = self.docs.get_mut(self.cur) else { return };
         match pending {
             Pending::None | Pending::Picking | Pending::ZoomRect { .. } => {}
@@ -388,30 +423,25 @@ impl App {
         let Some(doc) = self.docs.get_mut(self.cur) else { return };
         match &mut self.pending {
             Pending::Stroke(s) => {
-                if matches!(s.tool, Tool::Paintbrush | Tool::Eraser | Tool::CloneStamp | Tool::SmartClone) && s.layer < doc.layers.len() {
-                    let clip = doc.selection.clone();
+                let incremental = s.tool == Tool::CloneStamp || (s.tool == Tool::SmartClone && smart == crate::smart_clone::SmartMode::Blend);
+                if !incremental && matches!(s.tool, Tool::Paintbrush | Tool::Eraser | Tool::SmartClone) && s.layer < doc.layers.len() {
+                    let clip = doc.selection.as_ref();
                     let layer = &mut doc.layers[s.layer];
-                    restore(&mut layer.pixmap, &s.base.pixmap);
-                    if s.tool == Tool::SmartClone {
-                        if smart == crate::smart_clone::SmartMode::Blend {
-                            crate::smart_clone::blend_clone(&mut layer.pixmap, &s.base.pixmap, clip.as_ref(), &s.points, bw, aa, s.offset);
-                        } else {
-                            // preview of the area that will be healed
-                            paint::draw_brush_stroke(&mut layer.pixmap, clip.as_ref(), &s.points, bw, aa, false, BrushKind::Paint(Col::rgba(255, 60, 60, 110)));
-                        }
-                        doc.composite_dirty = true;
-                        return;
+                    let (iw, ih) = (layer.pixmap.width(), layer.pixmap.height());
+                    if let Some(r) = pts_rect(&s.points, bw / 2.0 + 4.0, iw, ih) {
+                        restore_rect(&mut layer.pixmap, &s.base.pixmap, r);
+                        self.stroke_dirty = union_rect(self.stroke_dirty, r);
                     }
-                    let kind = match s.tool {
-                        Tool::Eraser => BrushKind::Erase,
-                        Tool::CloneStamp => BrushKind::Clone { source: &s.base.pixmap, offset: s.offset },
-                        _ => BrushKind::Paint(s.color),
-                    };
-                    paint::draw_brush_stroke(&mut layer.pixmap, clip.as_ref(), &s.points, bw, aa, ow && s.tool == Tool::Paintbrush, kind);
+                    if s.tool == Tool::SmartClone {
+                        // preview of the area that will be healed
+                        paint::draw_brush_stroke(&mut layer.pixmap, clip, &s.points, bw, aa, false, BrushKind::Paint(Col::rgba(255, 60, 60, 110)));
+                    } else {
+                        let kind = if s.tool == Tool::Eraser { BrushKind::Erase } else { BrushKind::Paint(s.color) };
+                        paint::draw_brush_stroke(&mut layer.pixmap, clip, &s.points, bw, aa, ow && s.tool == Tool::Paintbrush, kind);
+                    }
                 }
                 doc.composite_dirty = true;
-            }
-            Pending::Shape(s) => {
+            }            Pending::Shape(s) => {
                 let clip = doc.selection.clone();
                 let layer = &mut doc.layers[s.layer];
                 restore(&mut layer.pixmap, &s.base.pixmap);
@@ -800,7 +830,7 @@ impl App {
                         self.status_msg = "Hold Ctrl and click to set the clone source first.".into();
                         return;
                     };
-                    offset = p - src;
+                    offset = vec2((p.x - src.x).round(), (p.y - src.y).round());
                 }
                 let (color, other) = if right { (self.secondary, self.primary) } else { (self.primary, self.secondary) };
                 let (ow, tolv, bw) = (self.ts.overwrite, self.ts.tolerance, self.ts.brush_width);
@@ -809,7 +839,14 @@ impl App {
                 let li = doc.active;
                 let base = doc.layers[li].clone();
                 let clip = doc.selection.clone();
-                if tool == Tool::Pencil {
+                if tool == Tool::CloneStamp {
+                    let aa = self.ts.antialias;
+                    paint::draw_brush_stroke(&mut doc.layers[li].pixmap, clip.as_ref(), &[p], bw, aa, false, BrushKind::Clone { source: &base.pixmap, offset });
+                    doc.composite_dirty = true;
+                } else if tool == Tool::SmartClone && self.ts.smart_mode == crate::smart_clone::SmartMode::Blend {
+                    crate::smart_clone::blend_segment(&mut doc.layers[li].pixmap, &base.pixmap, clip.as_ref(), p, p, bw, offset);
+                    doc.composite_dirty = true;
+                } else if tool == Tool::Pencil {
                     paint::pencil_line(&mut doc.layers[li].pixmap, clip.as_ref(), p, p, color, ow);
                     doc.composite_dirty = true;
                 } else if tool == Tool::Recolor {
@@ -914,6 +951,8 @@ impl App {
         let bw = self.ts.brush_width;
         let ow = self.ts.overwrite;
         let tolv = self.ts.tolerance;
+        let aa = self.ts.antialias;
+        let smart_blend = self.ts.smart_mode == crate::smart_clone::SmartMode::Blend;
         let Some(doc) = self.docs.get_mut(self.cur) else { return };
         match &mut self.pending {
             Pending::Select(s) => {
@@ -937,6 +976,19 @@ impl App {
                 }
                 let clip = doc.selection.clone();
                 match s.tool {
+                    Tool::CloneStamp | Tool::SmartClone if s.tool == Tool::CloneStamp || smart_blend => {
+                        let layer = &mut doc.layers[s.layer];
+                        let (iw, ih) = (layer.pixmap.width(), layer.pixmap.height());
+                        if s.tool == Tool::CloneStamp {
+                            paint::draw_brush_stroke(&mut layer.pixmap, clip.as_ref(), &[last, p], bw, aa, false, BrushKind::Clone { source: &s.base.pixmap, offset: s.offset });
+                        } else {
+                            crate::smart_clone::blend_segment(&mut layer.pixmap, &s.base.pixmap, clip.as_ref(), last, p, bw, s.offset);
+                        }
+                        if let Some(r) = pts_rect(&[last, p], bw / 2.0 + 4.0, iw, ih) {
+                            self.stroke_dirty = union_rect(self.stroke_dirty, r);
+                        }
+                        doc.composite_dirty = true;
+                    }
                     Tool::Pencil => {
                         paint::pencil_line(&mut doc.layers[s.layer].pixmap, clip.as_ref(), last, p, s.color, ow);
                         doc.composite_dirty = true;
@@ -1238,9 +1290,23 @@ impl App {
         if !doc.composite_dirty && doc.texture.is_some() {
             return;
         }
+        let opts = egui::TextureOptions { magnification: egui::TextureFilter::Nearest, ..egui::TextureOptions::LINEAR };
+        // brush strokes only touch a small region: update just that part of the texture
+        if let (Some(r), true, true, true) = (self.stroke_dirty.take(), self.drag.is_some(), matches!(self.pending, Pending::Stroke(_)), doc.texture.is_some()) {
+            let r = [r[0].clamp(0, doc.width as i32), r[1].clamp(0, doc.height as i32), r[2].clamp(0, doc.width as i32), r[3].clamp(0, doc.height as i32)];
+            if r[2] > r[0] && r[3] > r[1] {
+                let comp = doc.composite_rect(r);
+                let img = egui::ColorImage::from_rgba_premultiplied([(r[2] - r[0]) as usize, (r[3] - r[1]) as usize], comp.data());
+                if let Some(t) = doc.texture.as_mut() {
+                    t.set_partial([r[0] as usize, r[1] as usize], img, opts);
+                }
+            }
+            doc.composite_dirty = false;
+            return;
+        }
+        self.stroke_dirty = None;
         let comp = doc.composite();
         let img = egui::ColorImage::from_rgba_premultiplied([doc.width as usize, doc.height as usize], comp.data());
-        let opts = egui::TextureOptions { magnification: egui::TextureFilter::Nearest, ..egui::TextureOptions::LINEAR };
         match &mut doc.texture {
             Some(t) => t.set(img, opts),
             None => doc.texture = Some(ctx.load_texture(format!("doc{}", doc.uid), img, opts)),
@@ -1381,9 +1447,21 @@ impl App {
         // wheel: zoom with Ctrl, otherwise scroll
         if resp.hovered() {
             if zoomd != 1.0 {
-                let z = self.docs[self.cur].view.zoom;
-                let nz = zoom_step(z, if zoomd > 1.0 { 1 } else { -1 });
-                self.set_zoom(nz, hover);
+                // accumulate wheel/pinch input so one notch is one zoom step, however many events it arrives as
+                let id = egui::Id::new("zoom_accum");
+                let mut acc: f32 = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(1.0);
+                if (acc > 1.0) != (zoomd > 1.0) {
+                    acc = 1.0;
+                }
+                acc *= zoomd;
+                const STEP: f32 = 1.2;
+                if acc >= STEP || acc <= 1.0 / STEP {
+                    let z = self.docs[self.cur].view.zoom;
+                    let nz = zoom_step(z, if acc > 1.0 { 1 } else { -1 });
+                    self.set_zoom(nz, hover);
+                    acc = 1.0;
+                }
+                ui.ctx().data_mut(|d| d.insert_temp(id, acc));
             } else if scroll != Vec2::ZERO {
                 let doc = &mut self.docs[self.cur];
                 doc.view.center -= scroll / doc.view.zoom;

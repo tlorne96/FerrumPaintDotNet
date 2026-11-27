@@ -389,6 +389,27 @@ impl Document {
         out
     }
 
+    /// Composite only the rectangle [x0, y0, x1, y1] (blend modes are per pixel, so this is exact).
+    pub fn composite_rect(&self, r: [i32; 4]) -> Pixmap {
+        let (w, h) = ((r[2] - r[0]) as u32, (r[3] - r[1]) as u32);
+        let mut out = raster::new_pixmap(w, h);
+        let sw = self.width as usize;
+        for l in &self.layers {
+            if !(l.visible && l.opacity > 0) {
+                continue;
+            }
+            let mut crop = raster::new_pixmap(w, h);
+            let sd = l.pixmap.data();
+            let dd = crop.data_mut();
+            for y in 0..h as usize {
+                let so = ((r[1] as usize + y) * sw + r[0] as usize) * 4;
+                dd[y * w as usize * 4..(y + 1) * w as usize * 4].copy_from_slice(&sd[so..so + w as usize * 4]);
+            }
+            draw_layer(&mut out, &crop, l.opacity, l.blend);
+        }
+        out
+    }
+
     #[allow(dead_code)]
     fn composite_skia_only(&self) -> Pixmap {
         let mut out = raster::new_pixmap(self.width, self.height);
